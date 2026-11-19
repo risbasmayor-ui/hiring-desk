@@ -319,7 +319,7 @@
 
   function questionList(c) {
     const available = c
-      ? questions.filter((q) => (c.selectedQuestions || []).includes(q[0]))
+      ? questions.filter((q) => (c.selectedQuestions || []).includes(q[0])).sort((a, b) => a[1] - b[1])
       : questions;
     const selectedCounts = groups.map((_, group) =>
       available.filter((question) => question[1] === group).length
@@ -504,10 +504,14 @@ ${next}`;
     if (r.ratings[0] === null) missing.push('Routing evidence required');
     if (r.ratings[1] === null) missing.push('Firewall evidence required');
     const gate = missing.length ? `Coverage ${r.weight}% of 80% needed · ${missing.join(' · ')}` : `Coverage ${r.weight}% · gate met · ${r.label}`;
-    const breakdown = groups.map(([name], index) => {
+    const uncovered = groups.filter((_, index) => r.ratings[index] === null).map(([name]) => name);
+    const uncoveredNote = r.weight < 80 && uncovered.length
+      ? `<p class="hint">Competencies without scored evidence: ${uncovered.map(esc).join(', ')}. You can reach 80% through different combinations.</p>` : '';
+    const breakdown = groups.map(([name, weight], index) => {
       const scored = r.verified.filter(item => item.group === index).length;
       const selected = r.rows.filter(item => item.group === index).length;
-      return `<li>${esc(name)} <strong>${scored}/${selected}</strong> · ${scored ? 'covered' : 'not covered'}</li>`;
+      const covered = scored > 0;
+      return `<li><span>${esc(name)} <strong>${scored}/${selected}</strong> · ${covered ? weight + '% counted' : 'not covered'}</span><span class="competency-progress" role="progressbar" aria-label="${esc(name)} weight covered" aria-valuemin="0" aria-valuemax="${weight}" aria-valuenow="${covered ? weight : 0}"><i style="width:${covered ? 100 : 0}%"></i></span></li>`;
     }).join('');
     return `<div class="score-header panel">
         ${scoreRing(r.score)}
@@ -519,6 +523,7 @@ ${next}`;
           ${coverageBar(r.weight, 'Competency weight covered')}
           <p class="hint">${r.verified.length}/${r.rows.length} selected questions scored with evidence</p>
           <p class="hint"><strong>${esc(gate)}</strong></p>
+          ${uncoveredNote}
           <details><summary>Competency coverage</summary><ul class="coverage-list">${breakdown}</ul></details>
         </div>
         <button type="button" class="danger" data-action="delete" ${candidates.length ? '' : 'hidden'}>Delete candidate</button>
@@ -674,7 +679,7 @@ ${next}`;
         <div class="table"><table>
           <thead><tr><th scope="col">Question</th>${pair.map((c) => `<th scope="col">${esc(c.name)}</th>`).join('')}</tr></thead>
           <tbody>
-            ${questions.filter(([id]) => isSelected(id)).map(evidenceRow).join('')}
+            ${questions.filter(([id]) => isSelected(id)).sort((a, b) => a[1] - b[1]).map(evidenceRow).join('')}
 
           </tbody>
         </table></div>
@@ -1026,14 +1031,28 @@ ${next}`;
     if (el.matches('[data-template]') && el.value !== '') {
       const c = candidates.find(item=>item.id===selected);
       const template = settings.templates[Number(el.value)];
-      const proposed = [...new Set([...c.selectedQuestions,...template.questions.filter(id=>questions.some(q=>q[0]===id))])];
-      const overLimit = groups.filter((_, group) => proposed.filter(id => questions.find(q => q[0] === id)?.[1] === group).length > 3);
-      if (overLimit.length) {
-        alert('This template would exceed 3 questions in: ' + overLimit.map(([name]) => name).join(', ') + '. Adjust the existing selection first.');
-        render(); return;
+      const selection = new Set(c.selectedQuestions);
+      const skipped = [];
+      let added = 0;
+      for (const id of template.questions) {
+        const question = questions.find(item => item[0] === id);
+        if (!question || selection.has(id)) continue;
+        const count = questions.filter(item => item[1] === question[1] && selection.has(item[0])).length;
+        if (count >= 3) {
+          skipped.push(question[2]);
+          continue;
+        }
+        selection.add(id);
+        added++;
       }
-      c.selectedQuestions = proposed;
-      save(); render();
+      c.selectedQuestions = [...selection];
+      if (added) save();
+      render();
+      if (skipped.length) {
+        alert(`Added ${added} question${added === 1 ? '' : 's'}. These were not added because their competency already has 3 selected: ${skipped.join(', ')}. You can change the selection manually.`);
+      } else {
+        toast(`Added ${added} question${added === 1 ? '' : 's'} from the template`);
+      }
     }
     if (el.matches('[data-stage]')) {
       candidates.find(item => item.id === selected).stage = el.value;
@@ -1176,6 +1195,7 @@ ${next}`;
   }
   start();
 })();
+
 
 
 
