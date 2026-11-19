@@ -130,6 +130,7 @@
   }
 
   async function saveSettings() {
+    localStorage.setItem('hiring-desk-settings-pending-' + user.id, JSON.stringify(settings));
     pendingWrites++;
     try {
       let result;
@@ -140,6 +141,7 @@
       }
       if (result.error || !result.data.length) throw new Error('Could not save questions or templates. They may have changed on another device. Export your candidate records and reload.');
       settingsRevision = result.data[0].revision;
+      localStorage.removeItem('hiring-desk-settings-pending-' + user.id);
       toast('Changes saved');
     } catch (error) {
       failed = true;
@@ -1038,7 +1040,7 @@ ${next}`;
       async function authenticate(register) {
         const values = new FormData(authForm);
         const credentials = {email:String(values.get('email')),password:String(values.get('password'))};
-        const response = register ? await client.auth.signUp(credentials) : await client.auth.signInWithPassword(credentials);
+        const response = register ? await client.auth.signUp({...credentials,options:{emailRedirectTo:location.origin + location.pathname}}) : await client.auth.signInWithPassword(credentials);
         document.querySelector('#auth-message').textContent = response.error ? response.error.message : register && !response.data.session ? 'Check your email to confirm your account, then sign in.' : 'Signed in.';
         if (response.data?.session) location.reload();
       }
@@ -1067,15 +1069,17 @@ ${next}`;
     revisions = new Map(result.data.map(row => [row.id,row.revision]));
     savedSnapshots = new Map(candidates.map(candidate => [candidate.id,JSON.stringify(candidate)]));
     const pending = localStorage.getItem('hiring-desk-pending-' + user.id);
-    if (pending) {
+    const pendingSettings = localStorage.getItem('hiring-desk-settings-pending-' + user.id);
+    if (pending || pendingSettings) {
       failed = true;
       main.innerHTML = '<section class="panel"><h2>Unsaved changes found</h2><p>Changes from an earlier session remain in this browser. Export the browser backup before making further changes.</p><button data-action="export-pending">Export pending backup</button> <button data-action="discard-pending">Discard pending backup and load saved records</button></section>';
       document.querySelector('[data-action="export-pending"]').onclick = () => {
-        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([pending],{type:'application/json'})); link.download='hiring-desk-pending.json'; link.click(); URL.revokeObjectURL(link.href);
+        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify({candidates:pending ? JSON.parse(pending) : [],settings:pendingSettings ? JSON.parse(pendingSettings) : null},null,2)],{type:'application/json'})); link.download='hiring-desk-pending.json'; link.click(); URL.revokeObjectURL(link.href);
       };
       document.querySelector('[data-action="discard-pending"]').onclick = () => {
         if (confirm('Discard the unsaved backup? Export it first if you need those changes.')) {
           localStorage.removeItem('hiring-desk-pending-' + user.id);
+          localStorage.removeItem('hiring-desk-settings-pending-' + user.id);
           location.reload();
         }
       };
