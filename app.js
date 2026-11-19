@@ -9,6 +9,7 @@
 
   const STORAGE_KEY = 'ms-l2-hiring-v1';
   const statuses = ['Not tested', 'Partial', 'Passed', 'Failed'];
+  const stages = ['New', 'Technical screening', 'Interview with Aries', 'HR review', 'Closed'];
   const points = { Passed: 100, Partial: 50, Failed: 0 };
 
   let candidates = [];
@@ -48,6 +49,9 @@
       date: c.date || '',
       interviewer: c.interviewer || '',
       notes: c.notes || '',
+      stage: stages.includes(c.stage) ? c.stage : 'New',
+      assessment: c.assessment || '',
+      feedback: typeof c.feedback === 'string' ? c.feedback : null,
       answers: c.answers && typeof c.answers === 'object' ? c.answers : {},
       selectedQuestions: Array.isArray(c.selectedQuestions) ? c.selectedQuestions : null,
     };
@@ -178,7 +182,7 @@
             ? `<div class="table"><table>
                 <thead><tr>
                   <th scope="col">Candidate</th>
-                  <th scope="col">Screening date</th>
+                  <th scope="col">Stage</th><th scope="col">Screening date</th>
                   <th scope="col">Evidence</th>
                   <th scope="col">Coverage</th>
                   <th scope="col">Score</th>
@@ -191,7 +195,7 @@
                     const style = r.ready ? (r.proceed ? 'good' : 'bad') : 'pending';
                     return `<tr>
                       <td><b>${esc(c.name)}</b><div class="muted">${esc(c.role) || '—'}</div></td>
-                      <td>${esc(c.date) || '—'}</td>
+                      <td>${esc(c.stage || 'New')}</td><td>${esc(c.date) || '—'}</td>
                       <td>${r.verified.length} / ${r.rows.length}</td>
                       <td style="min-width:120px">${coverageBar(r.weight, 'Weight')}</td>
                       <td>${percent(r.score)}</td>
@@ -436,6 +440,11 @@ ${next}`;
       (c.notes
         ? `<div class="panel"><h3>Profile notes</h3><p class="muted">Candidate background and claims to validate</p><pre>${esc(c.notes)}</pre></div>`
         : '') +
+      `<section class="panel"><label>Screening stage
+        <select data-stage>${stages.map(stage => `<option ${stage === (c.stage || 'New') ? 'selected' : ''}>${esc(stage)}</option>`).join('')}</select>
+      </label><label>Interviewer assessment
+        <textarea data-assessment rows="4" placeholder="Relevant experience, strengths, gaps, and areas for Aries to validate">${esc(c.assessment || '')}</textarea>
+      </label></section>` +
       snapshot(c, r) +
       `<div class="row tabs" role="tablist" aria-label="Candidate views">${[
         ['interview', 'Interview'],
@@ -459,10 +468,10 @@ ${next}`;
           : `<section class="panel">
               <div class="row between">
                 <h2>Draft for HR</h2>
-                <button type="button" class="primary" data-action="copy">Copy feedback</button>
+                <button type="button" data-action="regenerate-feedback">Regenerate draft</button> <button type="button" class="primary" data-action="copy">Copy feedback</button>
               </div>
-              <p class="hint">Review or edit the draft here before sharing. Draft edits are temporary.</p>
-              <label>Feedback<textarea id="feedback" class="feedback">${esc(draft(c, r))}</textarea></label>
+              <p class="hint">Edit the draft before sharing. Changes are saved with this candidate.</p>
+              <label>Feedback<textarea id="feedback" class="feedback">${esc(c.feedback === null || c.feedback === undefined ? draft(c, r) : c.feedback)}</textarea></label>
               <p class="hint feedback-state" aria-live="polite"></p>
             </section>`)
     );
@@ -797,6 +806,12 @@ ${next}`;
       render();
       toast('Candidate deleted');
     }
+    if (b.dataset.action === 'regenerate-feedback') {
+      const candidate = candidates.find(item => item.id === selected);
+      if (candidate.feedback && !confirm('Replace the saved feedback with a new draft?')) return;
+      candidate.feedback = draft(candidate, assess(candidate));
+      save(); render();
+    }
     if (b.dataset.action === 'copy') {
       const field = document.querySelector('#feedback');
       const state = document.querySelector('.feedback-state');
@@ -822,6 +837,10 @@ ${next}`;
       render();
     }
     if (el.matches('[data-status]')) storeAnswer(el);
+    if (el.matches('[data-stage]')) {
+      candidates.find(item => item.id === selected).stage = el.value;
+      save();
+    }
     const checkbox = el.closest('[data-select-question]');
     if (checkbox) {
       const c = candidates.find((item) => item.id === selected);
@@ -837,6 +856,14 @@ ${next}`;
 
   main.addEventListener('input', (event) => {
     if (event.target.matches('[data-note]')) storeAnswer(event.target);
+    if (event.target.matches('[data-assessment]')) {
+      candidates.find(item => item.id === selected).assessment = event.target.value;
+      save();
+    }
+    if (event.target.matches('#feedback')) {
+      candidates.find(item => item.id === selected).feedback = event.target.value;
+      save();
+    }
   });
 
   function storeAnswer(el) {
