@@ -321,22 +321,26 @@
     const available = c
       ? questions.filter((q) => (c.selectedQuestions || []).includes(q[0]))
       : questions;
+    const selectedCounts = groups.map((_, group) =>
+      available.filter((question) => question[1] === group).length
+    );
     const controls = c
       ? `<div class="panel">${selecting ? `<label>Apply template <select data-template><option value="">Choose a template</option>${settings.templates.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('')}</select></label><button type="button" data-action="save-template">Save current selection as template</button>` : ''}
           <div class="row between">
             <div>
               <h2>${selecting ? 'Choose questions' : 'Interview questionnaire'}</h2>
-              <p class="hint">${selecting ? 'Select a competency, then tick questions to include.' : `${available.length} question${available.length === 1 ? '' : 's'} selected · changes save as you type`}</p>
+              <p class="hint">${selecting ? 'Select at least 3 questions for each competency you want to assess. This is guidance. A competency currently counts toward the score when at least one answer has a rating and an observation note.' : `${available.length} question${available.length === 1 ? '' : 's'} selected · changes save as you type`}</p>
             </div>
             <button type="button" class="primary" data-action="choose-questions">${selecting ? 'Done selecting' : 'Choose questions'}</button>
           </div>
           ${
             selecting
               ? `<div class="row tabs competency" role="tablist" aria-label="Competencies">${groups
-                  .map(
-                    ([name], i) =>
-                      `<button type="button" role="tab" aria-selected="${filter === String(i)}" data-competency="${i}" class="${filter === String(i) ? 'active' : ''}">${esc(name)}</button>`
-                  )
+                  .map(([name], i) => {
+                    const count = selectedCounts[i];
+                    const needed = count > 0 && count < 3 ? ` — ${3 - count} more needed` : '';
+                    return `<button type="button" role="tab" aria-selected="${filter === String(i)}" data-competency="${i}" class="${filter === String(i) ? 'active' : ''}">${esc(name)}: ${count} selected${needed}</button>`;
+                  })
                   .join('')}</div>`
               : ''
           }
