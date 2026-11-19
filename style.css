@@ -986,3 +986,64 @@ body.auth-locked #auth-message:empty { display: none; }
   .metric strong { font-size: 20px; }
   .hero .primary { width: 100%; }
 }
+
+
+/* Neutral workspace with restrained red accents */
+:root {
+  --ink: #232222;
+  --ink-soft: #494647;
+  --muted: #6f6b6b;
+  --paper: #f5f4f3;
+  --paper-deep: #ece9e8;
+  --surface: #ffffff;
+  --line: #d6d1d0;
+  --line-soft: #e9e5e4;
+  --forest: #292728;
+  --forest-mid: #4d3436;
+  --teal: #a3474c;
+  --mint: #e1b9b9;
+  --mint-soft: #f6e9e8;
+  --amber: #896f4f;
+  --amber-soft: #f3ede4;
+  --rose: #973e43;
+  --rose-soft: #f8e7e6;
+  --shadow: 0 2px 12px rgba(25, 22, 22, .045);
+}
+.sidebar { background: #232223; color: #f4f1f0; }
+.logo { background: #ead1d0; color: #6c3539; }
+.brand small { color: #beb4b3; }
+.nav-btn { color: #d1c9c8; }
+.nav-btn.active { background: #433738; box-shadow: inset 3px 0 0 #c6787b; }
+.local { color: #c9bfbf; }
+.local strong { color: #f2e8e7; }
+.hero { background: #f3eeee; border-color: #e8dedc; }
+.eyebrow { color: #915358; }
+.primary { background: #a3474c; border-color: #a3474c; color: #fff; }
+.primary:hover { background: #84383d; border-color: #84383d; color: #fff; }
+button:hover { border-color: #bd8c8e; background: #fbf6f5; }
+.danger { color: #973e43; border-color: #ead0cc; background: #fff8f7; }
+.metric, .panel, .question { border-color: #e9e5e4; }
+.empty-icon { background: #f5ecea; color: #925459; }
+.table { border-color: #eee9e8; }
+td, th { border-bottom-color: #f0eceb; }
+th { background: #faf8f7; }
+tbody tr:hover { background: #fbf5f4; }
+.pill.good { background: #eeeae9; color: #494445; }
+.pill.pending { background: #efeded; color: #565052; }
+.progress-bar > i { background: #a85a5e; }
+.question p { color: #51494a; }
+.question details { background: #f8f6f5; }
+summary { color: #94494e; }
+.fields { border-top-color: #eee9e8; }
+input, select, textarea { border-color: #d7d0cf; }
+input:hover, select:hover, textarea:hover { border-color: #bb9293; }
+input[type="checkbox"] { accent-color: #a3474c; }
+.select-row { background: #f8f0ef; }
+.tabs { background: #eeebea; }
+.tabs.competency button { border-color: #e2d9d8; color: #554b4c; }
+.tabs.competency button.active { background: #f6e6e5; color: #84383d; border-color: #d6a5a6; }
+.toast { background: #3b3031; }
+button:focus-visible, a:focus-visible, summary:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+.file-label:focus-within { outline-color: #b76d71; }
+body.auth-locked main > .panel { border-color: #e9e3e2; box-shadow: 0 16px 45px rgba(35, 25, 25, .08); }
