@@ -12,6 +12,8 @@
   const stages = ['New', 'Technical screening', 'Interview with Aries', 'HR review', 'Closed'];
   const points = { Passed: 100, Partial: 50, Failed: 0 };
 
+  let settings = {edits:{}, custom:[], templates:[]};
+  let settingsRevision = null;
   let candidates = [];
   let client;
   let user;
@@ -125,6 +127,24 @@
       alert(error.message);
     }).finally(() => { pendingWrites--; });
     return queue;
+  }
+
+  async function saveSettings() {
+    pendingWrites++;
+    try {
+      let result;
+      if (settingsRevision === null) {
+        result = await client.from('hiring_settings').insert({owner_id:user.id,data:settings}).select('revision');
+      } else {
+        result = await client.from('hiring_settings').update({data:settings,revision:settingsRevision+1}).eq('owner_id',user.id).eq('revision',settingsRevision).select('revision');
+      }
+      if (result.error || !result.data.length) throw new Error('Could not save questions or templates. They may have changed on another device. Export your candidate records and reload.');
+      settingsRevision = result.data[0].revision;
+      toast('Changes saved');
+    } catch (error) {
+      failed = true;
+      alert(error.message);
+    } finally { pendingWrites--; }
   }
 
   window.addEventListener('beforeunload', event => {
@@ -291,7 +311,7 @@
       ? questions.filter((q) => (c.selectedQuestions || []).includes(q[0]))
       : questions;
     const controls = c
-      ? `<div class="panel">
+      ? `<div class="panel">${selecting ? `<label>Apply template <select data-template><option value="">Choose a template</option>${settings.templates.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('')}</select></label><button type="button" data-action="save-template">Save current selection as template</button>` : ''}
           <div class="row between">
             <div>
               <h2>${selecting ? 'Choose questions' : 'Interview questionnaire'}</h2>
@@ -310,7 +330,7 @@
               : ''
           }
         </div>`
-      : `<div class="panel">${filterMarkup()}</div>`;
+      : `<div class="panel">${filterMarkup()}<button data-action="add-question">Add question</button></div>`;
 
     const visible = c
       ? selecting
@@ -349,6 +369,7 @@
             }
             <div class="eyebrow">${esc(groups[group][0])}</div>
             <h3>${esc(title)}</h3>
+            ${!c ? `<button type="button" data-edit-question="${esc(id)}">Edit question</button>` : ''}
             <p>${esc(prompt)}</p>
             <details>
               <summary>Expected answer</summary>
@@ -524,7 +545,7 @@ ${next}`;
           : `<section class="panel">
               <div class="row between">
                 <h2>Draft for HR</h2>
-                <button type="button" data-action="regenerate-feedback">Regenerate draft</button> <button type="button" class="primary" data-action="copy">Copy feedback</button>
+                <button type="button" data-action="regenerate-feedback">Regenerate draft</button> <button type="button" data-action="print-feedback">Print / save PDF</button> <button type="button" class="primary" data-action="copy">Copy feedback</button>
               </div>
               <p class="hint">Edit the draft before sharing. Changes are saved with this candidate.</p>
               <label>Feedback<textarea id="feedback" class="feedback">${esc(c.feedback === null || c.feedback === undefined ? draft(c, r) : c.feedback)}</textarea></label>
@@ -839,6 +860,38 @@ ${next}`;
       tab = b.dataset.tab;
       render();
     }
+    if (b.dataset.action === 'add-question' || b.dataset.editQuestion) {
+      const old = b.dataset.editQuestion ? questions.find(q => q[0] === b.dataset.editQuestion) : null;
+      const groupText = prompt('Competency number: ' + groups.map((g,i)=>`${i+1}. ${g[0]}`).join('  '), old ? String(old[1]+1) : '1');
+      if (groupText === null) return;
+      const group = Number(groupText)-1;
+      if (!Number.isInteger(group) || group < 0 || group >= groups.length) {alert('Choose a valid competency number.'); return;}
+      const title = prompt('Question title', old?.[2] || '');
+      if (title === null) return;
+      const promptText = prompt('Interview question', old?.[3] || '');
+      if (promptText === null) return;
+      const expected = prompt('Expected answer', old?.[4] || '');
+      if (expected === null) return;
+      if (![title,promptText,expected].every(v=>v.trim())) {alert('Complete every field.'); return;}
+      const id = old?.[0] || crypto.randomUUID();
+      const next = [id,group,title.trim(),promptText.trim(),expected.trim()];
+      if (old) {
+        const customIndex = settings.custom.findIndex(q=>q[0] === id);
+        if (customIndex >= 0) settings.custom[customIndex] = next;
+        else settings.edits[id] = next;
+      } else settings.custom.push(next);
+      const existingIndex = questions.findIndex(q=>q[0] === id);
+      if (existingIndex >= 0) questions.splice(existingIndex,1,next); else questions.push(next);
+      await saveSettings(); render();
+    }
+    if (b.dataset.action === 'save-template') {
+      const c = candidates.find(item=>item.id===selected);
+      if (!c.selectedQuestions.length) {alert('Select at least one question first.'); return;}
+      const name = prompt('Template name');
+      if (!name?.trim()) return;
+      settings.templates.push({name:name.trim(),questions:[...c.selectedQuestions]});
+      await saveSettings(); render();
+    }
     if (b.dataset.action === 'add') profile();
     if (b.dataset.action === 'edit') profile(candidates.find((item) => item.id === selected));
     if (b.dataset.action === 'choose-questions') {
@@ -883,6 +936,13 @@ ${next}`;
       candidate.feedback = draft(candidate, assess(candidate));
       save(); render();
     }
+    if (b.dataset.action === 'print-feedback') {
+      const popup = window.open('', '_blank');
+      if (!popup) {alert('Allow pop-ups to print the feedback.'); return;}
+      popup.document.write('<!doctype html><title>HR feedback</title><style>body{font:15px/1.5 system-ui;margin:40px;white-space:pre-wrap}</style>' + esc(document.querySelector('#feedback').value));
+      popup.document.close();
+      popup.focus(); popup.print();
+    }
     if (b.dataset.action === 'copy') {
       const field = document.querySelector('#feedback');
       const state = document.querySelector('.feedback-state');
@@ -908,6 +968,12 @@ ${next}`;
       render();
     }
     if (el.matches('[data-status]')) storeAnswer(el);
+    if (el.matches('[data-template]') && el.value !== '') {
+      const c = candidates.find(item=>item.id===selected);
+      const template = settings.templates[Number(el.value)];
+      c.selectedQuestions = [...new Set([...c.selectedQuestions,...template.questions.filter(id=>questions.some(q=>q[0]===id))])];
+      save(); render();
+    }
     if (el.matches('[data-stage]')) {
       candidates.find(item => item.id === selected).stage = el.value;
       save();
@@ -983,6 +1049,20 @@ ${next}`;
     user = data.session.user;
     const result = await client.from('hiring_candidates').select('id,data,revision');
     if (result.error) {main.innerHTML = '<section class="panel"><h2>Unable to load records</h2><p>Refresh to try again. Browser records remain on this device.</p></section>'; return;}
+    const settingsResult = await client.from('hiring_settings').select('data,revision').maybeSingle();
+    if (settingsResult.error) {main.innerHTML = '<section class="panel"><h2>Unable to load question settings</h2><p>Refresh and try again.</p></section>'; return;}
+    if (settingsResult.data) {
+      settings = settingsResult.data.data;
+      settings.edits ||= {}; settings.custom ||= []; settings.templates ||= [];
+      settingsRevision = settingsResult.data.revision;
+      for (const [id, question] of Object.entries(settings.edits)) {
+        const index = questions.findIndex(q=>q[0]===id);
+        if (index >= 0) questions.splice(index,1,question);
+      }
+      for (const question of settings.custom) {
+        if (!questions.some(q=>q[0]===question[0])) questions.push(question);
+      }
+    }
     candidates = result.data.map(row => normalizeCandidate(row.data));
     revisions = new Map(result.data.map(row => [row.id,row.revision]));
     savedSnapshots = new Map(candidates.map(candidate => [candidate.id,JSON.stringify(candidate)]));
