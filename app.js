@@ -278,8 +278,8 @@
             ${candidates.length ? '<button type="button" data-action="export">Export JSON</button>' : ''}
           </div>
         </div>
-        <div class="pipeline-filters"><label>Search candidates<input type="search" data-pipeline-search value="${esc(pipelineSearch)}" placeholder="Name or role"></label><label>Stage<select data-stage-filter><option value="all">All stages</option>${stages.map(stage=>`<option value="${esc(stage)}" ${pipelineStage===stage?'selected':''}>${esc(stage)}</option>`).join('')}</select></label>${(pipelineFilter!=='all'||pipelineStage!=='all'||pipelineSearch)?'<button type="button" data-clear-pipeline>Clear filters</button>':''}</div>
-        ${pipelineFilter !== 'all' ? `<p class="hint">Showing ${filterName} (${visible.length})</p>` : ''}
+        <div class="pipeline-filters"><label>Search candidates<input type="search" data-pipeline-search value="${esc(pipelineSearch)}" placeholder="Name or role"></label><label>Stage<select data-stage-filter><option value="all">All stages</option>${stages.map(stage=>`<option value="${esc(stage)}" ${pipelineStage===stage?'selected':''}>${esc(stage)}</option>`).join('')}</select></label><button type="button" data-clear-pipeline ${(pipelineFilter!=='all'||pipelineStage!=='all'||pipelineSearch)?'':'hidden'}>Clear filters</button></div>
+        <div data-pipeline-results>${pipelineFilter !== 'all' ? `<p class="hint">Showing ${filterName} (${visible.length})</p>` : ''}
         ${
           visible.length
             ? `<div class="table"><table>
@@ -316,7 +316,7 @@
                 <button type="button" class="primary" data-action="add">Add first candidate</button>
               </div>`
         }
-      </section>`
+      </div></section>`
     );
   }
 
@@ -1235,7 +1235,7 @@ ${next}`;
 
   main.addEventListener('input', (event) => {
     if (!workspaceReady) return;
-    if (event.target.matches('[data-pipeline-search]')) { pipelineSearch=event.target.value; const pos=event.target.selectionStart; render(); const input=main.querySelector('[data-pipeline-search]'); input?.focus(); input?.setSelectionRange(pos,pos); }
+    if (event.target.matches('[data-pipeline-search]')) { pipelineSearch=event.target.value; const temp=document.createElement('div'); temp.innerHTML=pipeline(); main.querySelector('[data-pipeline-results]').innerHTML=temp.querySelector('[data-pipeline-results]').innerHTML; main.querySelector('[data-clear-pipeline]').hidden=!(pipelineSearch || pipelineStage!=='all' || pipelineFilter!=='all'); }
     if (event.target.matches('[data-note]')) storeAnswer(event.target);
     if (event.target.matches('[data-assessment]')) {
       if (candidates.find(item => item.id === selected)?.completion) return;
