@@ -570,9 +570,9 @@ ${next}`;
     const completedDate = Number.isNaN(date.getTime()) ? record.completedAt : date.toLocaleString();
     return `<section class="panel"><div class="row between"><div><h2>Completed assessment</h2><p class="hint">Completed ${esc(completedDate)} · Assessment is locked</p></div><button type="button" data-action="print-completed">Print / save PDF</button></div>
       <p class="hint">Final record for ${esc(record.candidateName)}${record.candidateRole ? ' · '+esc(record.candidateRole) : ''}</p>
-      <p><strong>${percent(result.score)} weighted score · ${result.weight}% coverage · ${esc(result.label)}</strong></p></section>
+      <p><strong> ${percent(result.score)} weighted score · ${esc(result.weight)}% coverage · ${esc(result.label)}</strong></p></section>
       <section class="panel"><h2>Competency breakdown</h2><div class="table"><table><thead><tr><th>Competency</th><th>Weight</th><th>Score</th><th>Evidence</th></tr></thead><tbody>
-      ${record.competencies.map(item=>`<tr><td>${esc(item.name)}</td><td>${item.weight}%</td><td>${percent(item.score)}</td><td>${item.scored}/${item.selected}</td></tr>`).join('')}</tbody></table></div></section>
+      ${record.competencies.map(item=>`<tr><td>${esc(item.name)}</td><td>${esc(item.weight)}%</td><td>${percent(item.score)}</td><td>${esc(item.scored)}/${esc(item.selected)}</td></tr>`).join('')}</tbody></table></div></section>
       <section class="panel"><h2>Question evidence</h2><div class="table"><table><thead><tr><th>Competency</th><th>Question</th><th>Result</th><th>Observation</th></tr></thead><tbody>
       ${record.evidence.map(item=>`<tr><td>${esc(item.competency)}</td><td><b>${esc(item.title)}</b><p>${esc(item.prompt)}</p></td><td>${esc(item.status)}</td><td>${esc(item.note) || '—'}</td></tr>`).join('')}</tbody></table></div></section>
       <section class="panel"><h2>HR feedback</h2><pre>${esc(record.feedback)}</pre></section>`;
