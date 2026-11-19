@@ -13,6 +13,15 @@
   const points = { Passed: 100, Partial: 50, Failed: 0 };
 
   let candidates = [];
+  let client;
+  let user;
+  let revisions = new Map();
+  let savedSnapshots = new Map();
+  let writeTimer;
+  let queue = Promise.resolve();
+  let failed = false;
+  let pendingWrites = 0;
+  let dirty = false;
   let view = 'pipeline';
   let selected = '';
   let tab = 'interview';
@@ -72,8 +81,55 @@
   }
 
   function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(candidates));
+    if (!user) return;
+    dirty = true;
+    localStorage.setItem('hiring-desk-pending-' + user.id, JSON.stringify(candidates));
+    clearTimeout(writeTimer);
+    writeTimer = setTimeout(syncCandidates, 600);
   }
+
+  function syncCandidates() {
+    if (!user || failed || !dirty) return queue;
+    dirty = false;
+    const snapshot = JSON.parse(JSON.stringify(candidates));
+    const account = user.id;
+    pendingWrites++;
+    queue = queue.then(async () => {
+      const ids = new Set(snapshot.map(c => c.id));
+      for (const [id, revision] of revisions) {
+        if (ids.has(id)) continue;
+        const result = await client.from('hiring_candidates').delete().eq('owner_id', account).eq('id', id).eq('revision', revision).select('id');
+        if (result.error || !result.data.length) throw new Error('A record changed elsewhere. Your local changes are kept in this browser.');
+        revisions.delete(id);
+        savedSnapshots.delete(id);
+      }
+      for (const candidate of snapshot) {
+        const data = JSON.stringify(candidate);
+        if (savedSnapshots.get(candidate.id) === data) continue;
+        const revision = revisions.get(candidate.id);
+        let result;
+        if (revision === undefined) {
+          result = await client.from('hiring_candidates').insert({owner_id:account,id:candidate.id,data:candidate}).select('revision');
+        } else {
+          result = await client.from('hiring_candidates').update({data:candidate,revision:revision+1,updated_at:new Date().toISOString()}).eq('owner_id',account).eq('id',candidate.id).eq('revision',revision).select('revision');
+        }
+        if (result.error || !result.data.length) throw new Error('Could not save. A record may have changed on another device. Your local changes are kept in this browser.');
+        revisions.set(candidate.id,result.data[0].revision);
+        savedSnapshots.set(candidate.id,data);
+      }
+      if (!dirty && pendingWrites === 1 && !failed) localStorage.removeItem('hiring-desk-pending-' + account);
+      toast('Changes saved');
+    }).catch(error => {
+      failed = true;
+      toast(error.message);
+      alert(error.message);
+    }).finally(() => { pendingWrites--; });
+    return queue;
+  }
+
+  window.addEventListener('beforeunload', event => {
+    if (dirty || failed || pendingWrites) {event.preventDefault(); event.returnValue = '';}
+  });
 
   function toast(message) {
     document.querySelectorAll('.toast').forEach((el) => el.remove());
@@ -795,6 +851,21 @@ ${next}`;
       render();
     }
     if (b.dataset.action === 'export') exportCandidates();
+    if (b.dataset.action === 'import-browser') {
+      const existing = new Set(candidates.map(c => c.id));
+      const prior = loadCandidates().filter(c => !existing.has(c.id));
+      candidates.push(...prior);
+      if (prior.length) save();
+      render();
+      toast(prior.length + ' browser records added');
+    }
+    if (b.dataset.action === 'sign-out') {
+      if (dirty || failed || pendingWrites) { alert('Save pending changes before signing out.'); return; }
+      await queue;
+      if (failed) return;
+      await client.auth.signOut();
+      location.reload();
+    }
     if (b.dataset.action === 'delete') {
       const c = candidates.find((item) => item.id === selected);
       if (!c) return;
@@ -883,7 +954,50 @@ ${next}`;
     importInput.value = '';
   });
 
-  candidates = loadCandidates();
-  render();
+  async function start() {
+    if (!window.supabase) {
+      main.innerHTML = '<section class="panel"><h2>Unable to load sign-in</h2><p>Check your connection and refresh. Browser records remain on this device.</p></section>';
+      return;
+    }
+    client = window.supabase.createClient('https://leolozdgikkiufybwxjm.supabase.co', 'sb_publishable_peX0Uc2ogkh941xHVH9Zpw_2j3kEjHq');
+    const {data, error} = await client.auth.getSession();
+    if (error) { alert(error.message); return; }
+    if (!data.session) {
+      main.innerHTML = `<section class="panel"><h1>Sign in to Hiring Desk</h1><p>Use your hiring workspace account.</p>
+        <form id="auth-form"><label>Email <input name="email" type="email" required></label>
+        <label>Password <input name="password" type="password" minlength="8" required></label>
+        <div class="actions"><button class="primary" type="submit">Sign in</button><button type="button" id="register">Create account</button></div>
+        <p id="auth-message" role="status"></p></form></section>`;
+      const authForm = document.querySelector('#auth-form');
+      async function authenticate(register) {
+        const values = new FormData(authForm);
+        const credentials = {email:String(values.get('email')),password:String(values.get('password'))};
+        const response = register ? await client.auth.signUp(credentials) : await client.auth.signInWithPassword(credentials);
+        document.querySelector('#auth-message').textContent = response.error ? response.error.message : register && !response.data.session ? 'Check your email to confirm your account, then sign in.' : 'Signed in.';
+        if (response.data?.session) location.reload();
+      }
+      authForm.addEventListener('submit', event => {event.preventDefault(); authenticate(false);});
+      document.querySelector('#register').addEventListener('click', () => {if (authForm.reportValidity()) authenticate(true);});
+      return;
+    }
+    user = data.session.user;
+    const result = await client.from('hiring_candidates').select('id,data,revision');
+    if (result.error) {main.innerHTML = '<section class="panel"><h2>Unable to load records</h2><p>Refresh to try again. Browser records remain on this device.</p></section>'; return;}
+    candidates = result.data.map(row => normalizeCandidate(row.data));
+    revisions = new Map(result.data.map(row => [row.id,row.revision]));
+    savedSnapshots = new Map(candidates.map(candidate => [candidate.id,JSON.stringify(candidate)]));
+    const pending = localStorage.getItem('hiring-desk-pending-' + user.id);
+    if (pending) {
+      failed = true;
+      main.innerHTML = '<section class="panel"><h2>Unsaved changes found</h2><p>Changes from an earlier session remain in this browser. Export the browser backup before making further changes.</p><button data-action="export-pending">Export pending backup</button></section>';
+      document.querySelector('[data-action="export-pending"]').onclick = () => {
+        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([pending],{type:'application/json'})); link.download='hiring-desk-pending.json'; link.click(); URL.revokeObjectURL(link.href);
+      };
+      return;
+    }
+    document.querySelector('.local').innerHTML = '<strong>Account storage</strong> Records are saved to your account. <button type="button" data-action="import-browser">Import browser records</button> <button type="button" data-action="sign-out">Sign out</button>';
+    render();
+  }
+  start();
 })();
 
