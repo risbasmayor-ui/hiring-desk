@@ -21,6 +21,7 @@
   let settings = {edits:{}, custom:[], templates:starterTemplates.map(t=>({...t,questions:[...t.questions]}))};
   let settingsRevision = null;
   let settingsQueue = Promise.resolve();
+  let workspaceReady = false;
   let candidates = [];
   let client;
   let user;
@@ -705,6 +706,7 @@ ${next}`;
   }
 
   function render() {
+    if (!workspaceReady) return;
     document.querySelectorAll('.nav-btn').forEach((b) =>
       b.classList.toggle('active', b.dataset.view === (view === 'candidate' ? 'pipeline' : view))
     );
@@ -804,6 +806,7 @@ ${next}`;
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (!workspaceReady) return;
     const data = Object.fromEntries(
       Array.from(new FormData(form), ([k, v]) => [k, String(v).trim()])
     );
@@ -845,6 +848,7 @@ ${next}`;
   });
 
   document.addEventListener('click', async (event) => {
+    if (!workspaceReady) return;
     const b = event.target.closest('button');
     if (!b) return;
 
@@ -968,6 +972,7 @@ ${next}`;
   });
 
   main.addEventListener('change', (event) => {
+    if (!workspaceReady) return;
     const el = event.target;
     if (el.matches('[data-filter]')) {
       filter = el.value;
@@ -1002,6 +1007,7 @@ ${next}`;
   });
 
   main.addEventListener('input', (event) => {
+    if (!workspaceReady) return;
     if (event.target.matches('[data-note]')) storeAnswer(event.target);
     if (event.target.matches('[data-assessment]')) {
       candidates.find(item => item.id === selected).assessment = event.target.value;
@@ -1025,6 +1031,7 @@ ${next}`;
   }
 
   importInput.addEventListener('change', () => {
+    if (!workspaceReady) return;
     const file = importInput.files?.[0];
     if (file) importCandidates(file);
     importInput.value = '';
@@ -1093,9 +1100,12 @@ ${next}`;
       };
       return;
     }
+    workspaceReady = true;
+    document.body.classList.remove('auth-locked');
     document.querySelector('.local').innerHTML = '<strong>Account storage</strong> Records are saved to your account. <button type="button" data-action="import-browser">Import browser records</button> <button type="button" data-action="sign-out">Sign out</button>';
     render();
   }
   start();
 })();
+
 
