@@ -51,7 +51,7 @@
     );
 
   const advancedIds = new Set(['ospf','bgpflap','cert','sdwanpolicy','majorincident','rca','redistribution','appid','dos','sase','failedchange','mentoring']);
-  const difficultyOf = q => q?.[5] || (q?.[1] === 6 || ['vlan','subnet','overlay'].includes(q?.[0]) ? 'Foundation' : advancedIds.has(q?.[0]) ? 'Advanced' : 'Core');
+  const difficultyOf = q => (['Foundation','Core','Advanced'].includes(q?.[5]) ? q[5] : null) || (q?.[1] === 6 || ['vlan','subnet','overlay'].includes(q?.[0]) ? 'Foundation' : advancedIds.has(q?.[0]) ? 'Advanced' : 'Core');
 
   const percent = (x) => (x == null ? '—' : `${Math.round(x)}%`);
 
@@ -899,7 +899,7 @@ ${next}`;
   }
 
   function exportCandidates() {
-    const blob = new Blob([JSON.stringify({candidates, questions:questions.map(q=>({id:q[0],difficulty:difficultyOf(q)}))}, null, 2)], {
+    const blob = new Blob([JSON.stringify({candidates, questions:questions.map(q=>({id:q[0],competency:groups[q[1]][0],title:q[2],prompt:q[3],expectedAnswer:q[4],difficulty:difficultyOf(q)}))}, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
@@ -1130,7 +1130,7 @@ ${next}`;
       selected = '';
       view = 'pipeline';
       render();
-      toast('Candidate deleted');
+      toast('Deletion pending save');
     }
     if (b.dataset.action === 'regenerate-feedback') {
       const candidate = candidates.find(item => item.id === selected);
@@ -1325,7 +1325,16 @@ ${next}`;
         if (!questions.some(q=>q[0]===question[0])) questions.push(question);
       }
     }
-    for (const q of questions) q[5] = difficultyOf(q);
+    let difficultyNeedsSave = false;
+    for (const q of questions) {
+      if (!['Foundation','Core','Advanced'].includes(q[5])) {
+        q[5] = difficultyOf(q);
+        const custom = settings.custom.find(item => item[0] === q[0]);
+        if (custom) custom[5] = q[5];
+        else settings.edits[q[0]] = [...q];
+        difficultyNeedsSave = true;
+      }
+    }
     candidates = result.data.map(row => normalizeCandidate(row.data));
     revisions = new Map(result.data.map(row => [row.id,row.revision]));
     savedSnapshots = new Map(candidates.map(candidate => [candidate.id,JSON.stringify(candidate)]));
@@ -1342,6 +1351,7 @@ ${next}`;
         (hasBackup ? ' <button type="button" data-action="export-recovery">Export recovery backup</button>' : '') +
         ' <button type="button" data-action="sign-out">Sign out</button>';
       render();
+      if (difficultyNeedsSave) { difficultyNeedsSave = false; saveSettings(); }
     }
 
     if (pending || pendingSettings) {
