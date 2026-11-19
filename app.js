@@ -12,13 +12,7 @@
   const stages = ['New', 'Technical screening', 'Interview with Aries', 'HR review', 'Closed'];
   const points = { Passed: 100, Partial: 50, Failed: 0 };
 
-  const starterTemplates = [
-    {name:'L2 initial screening',questions:['mpls','ospf','bgp','stp','panorama','ipsec','sdwan','incident','change','fund_subnet','fund_dhcp']},
-    {name:'Firewall focused',questions:['panorama','ipsec','web','nat','ha','cert','change']},
-    {name:'Routing focused',questions:['mpls','ospf','bgp','stp','routecompare','bgpflap','fund_subnet']},
-    {name:'L1 assessment',questions:['fund_vlan','fund_ip','fund_subnet','fund_dhcp','fund_dns','fund_tools','monitor','incident']}
-  ];
-  let settings = {edits:{}, custom:[], templates:starterTemplates.map(t=>({...t,questions:[...t.questions]}))};
+  let settings = {edits:{}, custom:[], templates:[]};
   let settingsRevision = null;
   let settingsQueue = Promise.resolve();
   let workspaceReady = false;
@@ -155,7 +149,7 @@
       } else {
         result = await client.from('hiring_settings').update({data:JSON.parse(snapshot),revision:settingsRevision+1}).eq('owner_id',user.id).eq('revision',settingsRevision).select('revision');
       }
-      if (result.error || !result.data.length) throw new Error('Could not save questions or templates. They may have changed on another device. Your changes remain in this browser.');
+      if (result.error || !result.data.length) throw new Error('Could not save question settings. They may have changed on another device. Your changes remain in this browser.');
       settingsRevision = result.data[0].revision;
       if (localStorage.getItem(backupKey) === snapshot) localStorage.removeItem(backupKey);
       toast('Changes saved');
@@ -342,7 +336,7 @@
       available.filter((question) => question[1] === group).length
     );
     const controls = c
-      ? `<div class="panel">${selecting ? `<label>Apply template <select data-template><option value="">Choose a template</option>${settings.templates.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('')}</select></label><button type="button" data-action="save-template">Save current selection as template</button>` : ''}
+      ? `<div class="panel">
           <div class="row between">
             <div>
               <h2>${selecting ? 'Choose questions' : 'Interview questionnaire'}</h2>
@@ -1069,15 +1063,6 @@ ${next}`;
       popup.document.write('<!doctype html><title>Completed assessment</title><style>body{font:14px/1.5 system-ui;margin:32px}section{margin:22px 0}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #ccc;vertical-align:top}pre{white-space:pre-wrap}button{display:none}</style>' + completedSummary(candidate));
       popup.document.close(); popup.focus(); popup.print();
     }
-    if (b.dataset.action === 'save-template') {
-      const c = candidates.find(item=>item.id===selected);
-      if (c.completion) return;
-      if (!c.selectedQuestions.length) {alert('Select at least one question first.'); return;}
-      const name = prompt('Template name');
-      if (!name?.trim()) return;
-      settings.templates.push({name:name.trim(),questions:[...c.selectedQuestions]});
-      await saveSettings(); render();
-    }
     if (b.dataset.action === 'add') profile();
     if (b.dataset.action === 'edit') profile(candidates.find((item) => item.id === selected));
     if (b.dataset.action === 'choose-questions') {
@@ -1174,33 +1159,6 @@ ${next}`;
       render();
     }
     if (el.matches('[data-status]')) storeAnswer(el);
-    if (el.matches('[data-template]') && el.value !== '') {
-      const c = candidates.find(item=>item.id===selected);
-      if (c.completion) return;
-      const template = settings.templates[Number(el.value)];
-      const selection = new Set(c.selectedQuestions);
-      const skipped = [];
-      let added = 0;
-      for (const id of template.questions) {
-        const question = questions.find(item => item[0] === id);
-        if (!question || selection.has(id)) continue;
-        const count = questions.filter(item => item[1] === question[1] && selection.has(item[0])).length;
-        if (count >= 3) {
-          skipped.push(question[2]);
-          continue;
-        }
-        selection.add(id);
-        added++;
-      }
-      c.selectedQuestions = [...selection];
-      if (added) save();
-      render();
-      if (skipped.length) {
-        alert(`Added ${added} question${added === 1 ? '' : 's'}. These were not added because their competency already has 3 selected: ${skipped.join(', ')}. You can change the selection manually.`);
-      } else {
-        toast(`Added ${added} question${added === 1 ? '' : 's'} from the template`);
-      }
-    }
     if (el.matches('[data-stage]')) {
       const candidate = candidates.find(item => item.id === selected);
       if (candidate.completion && !['HR review', 'Closed'].includes(el.value)) {
