@@ -1073,3 +1073,9 @@ body.auth-locked main > .panel { border-color: #e9e3e2; box-shadow: 0 16px 45px 
 
 dialog[aria-labelledby="complete-title"] p { margin-top: 12px; }
 dialog[aria-labelledby="complete-title"] .actions { margin-top: 20px; }
+
+
+.metrics button.metric { text-align: left; color: var(--ink); font: inherit; cursor: pointer; }
+.metrics button.metric:hover { border-color: #b68284; }
+.metrics button.metric.active { border-color: #a3474c; box-shadow: 0 0 0 2px rgba(163,71,76,.14); }
+.metrics button.metric:focus-visible { outline: 3px solid #b76d71; outline-offset: 2px; }
