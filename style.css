@@ -1069,3 +1069,7 @@ body.auth-locked main > .panel { border-color: #e9e3e2; box-shadow: 0 16px 45px 
 .coverage-list li { flex: 1 1 190px; }
 .competency-progress { display: block; height: 5px; margin-top: 5px; border-radius: 99px; background: var(--paper-deep); overflow: hidden; }
 .competency-progress > i { display: block; height: 100%; background: var(--teal); border-radius: inherit; }
+
+
+dialog[aria-labelledby="complete-title"] p { margin-top: 12px; }
+dialog[aria-labelledby="complete-title"] .actions { margin-top: 20px; }
