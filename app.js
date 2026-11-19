@@ -989,9 +989,15 @@ ${next}`;
     const pending = localStorage.getItem('hiring-desk-pending-' + user.id);
     if (pending) {
       failed = true;
-      main.innerHTML = '<section class="panel"><h2>Unsaved changes found</h2><p>Changes from an earlier session remain in this browser. Export the browser backup before making further changes.</p><button data-action="export-pending">Export pending backup</button></section>';
+      main.innerHTML = '<section class="panel"><h2>Unsaved changes found</h2><p>Changes from an earlier session remain in this browser. Export the browser backup before making further changes.</p><button data-action="export-pending">Export pending backup</button> <button data-action="discard-pending">Discard pending backup and load saved records</button></section>';
       document.querySelector('[data-action="export-pending"]').onclick = () => {
         const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([pending],{type:'application/json'})); link.download='hiring-desk-pending.json'; link.click(); URL.revokeObjectURL(link.href);
+      };
+      document.querySelector('[data-action="discard-pending"]').onclick = () => {
+        if (confirm('Discard the unsaved backup? Export it first if you need those changes.')) {
+          localStorage.removeItem('hiring-desk-pending-' + user.id);
+          location.reload();
+        }
       };
       return;
     }
