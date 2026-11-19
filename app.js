@@ -20,6 +20,7 @@
   ];
   let settings = {edits:{}, custom:[], templates:starterTemplates.map(t=>({...t,questions:[...t.questions]}))};
   let settingsRevision = null;
+  let settingsQueue = Promise.resolve();
   let candidates = [];
   let client;
   let user;
@@ -72,11 +73,8 @@
       answers: c.answers && typeof c.answers === 'object' ? c.answers : {},
       selectedQuestions: Array.isArray(c.selectedQuestions) ? c.selectedQuestions : null,
     };
-    // Earlier versions preselected the entire bank. Keep recorded answers visible.
-    if (
-      !candidate.selectedQuestions ||
-      candidate.selectedQuestions.length === questions.length
-    ) {
+    // Legacy records without an explicit selection retain their answered questions.
+    if (!candidate.selectedQuestions) {
       candidate.selectedQuestions = Object.keys(candidate.answers).filter((id) => {
         const response = candidate.answers[id];
         return (
@@ -135,24 +133,28 @@
     return queue;
   }
 
-  async function saveSettings() {
-    localStorage.setItem('hiring-desk-settings-pending-' + user.id, JSON.stringify(settings));
+  function saveSettings() {
+    const snapshot = JSON.stringify(settings);
+    const backupKey = 'hiring-desk-settings-pending-' + user.id;
+    localStorage.setItem(backupKey, snapshot);
     pendingWrites++;
-    try {
+    settingsQueue = settingsQueue.then(async () => {
+      if (failed) throw new Error('An earlier save failed. Your question settings remain in this browser.');
       let result;
       if (settingsRevision === null) {
-        result = await client.from('hiring_settings').insert({owner_id:user.id,data:settings}).select('revision');
+        result = await client.from('hiring_settings').insert({owner_id:user.id,data:JSON.parse(snapshot)}).select('revision');
       } else {
-        result = await client.from('hiring_settings').update({data:settings,revision:settingsRevision+1}).eq('owner_id',user.id).eq('revision',settingsRevision).select('revision');
+        result = await client.from('hiring_settings').update({data:JSON.parse(snapshot),revision:settingsRevision+1}).eq('owner_id',user.id).eq('revision',settingsRevision).select('revision');
       }
-      if (result.error || !result.data.length) throw new Error('Could not save questions or templates. They may have changed on another device. Export your candidate records and reload.');
+      if (result.error || !result.data.length) throw new Error('Could not save questions or templates. They may have changed on another device. Your changes remain in this browser.');
       settingsRevision = result.data[0].revision;
-      localStorage.removeItem('hiring-desk-settings-pending-' + user.id);
+      if (localStorage.getItem(backupKey) === snapshot) localStorage.removeItem(backupKey);
       toast('Changes saved');
-    } catch (error) {
+    }).catch(error => {
       failed = true;
       alert(error.message);
-    } finally { pendingWrites--; }
+    }).finally(() => { pendingWrites--; });
+    return settingsQueue;
   }
 
   window.addEventListener('beforeunload', event => {
