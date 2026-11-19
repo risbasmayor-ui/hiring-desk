@@ -9,9 +9,28 @@
 
   const STORAGE_KEY = 'ms-l2-hiring-v1';
   const statuses = ['Not tested', 'Partial', 'Passed', 'Failed'];
+  const stages = ['New', 'Technical screening', 'Interview with Aries', 'HR review', 'Closed'];
   const points = { Passed: 100, Partial: 50, Failed: 0 };
 
+  const starterTemplates = [
+    {name:'L2 initial screening',questions:['mpls','ospf','bgp','stp','panorama','ipsec','sdwan','incident','change','fund_subnet','fund_dhcp']},
+    {name:'Firewall focused',questions:['panorama','ipsec','web','nat','ha','cert','change']},
+    {name:'Routing focused',questions:['mpls','ospf','bgp','stp','routecompare','bgpflap','fund_subnet']},
+    {name:'L1 assessment',questions:['fund_vlan','fund_ip','fund_subnet','fund_dhcp','fund_dns','fund_tools','monitor','incident']}
+  ];
+  let settings = {edits:{}, custom:[], templates:starterTemplates.map(t=>({...t,questions:[...t.questions]}))};
+  let settingsRevision = null;
+  let settingsQueue = Promise.resolve();
   let candidates = [];
+  let client;
+  let user;
+  let revisions = new Map();
+  let savedSnapshots = new Map();
+  let writeTimer;
+  let queue = Promise.resolve();
+  let failed = false;
+  let pendingWrites = 0;
+  let dirty = false;
   let view = 'pipeline';
   let selected = '';
   let tab = 'interview';
@@ -48,14 +67,14 @@
       date: c.date || '',
       interviewer: c.interviewer || '',
       notes: c.notes || '',
+      stage: stages.includes(c.stage) ? c.stage : 'New',
+      assessment: c.assessment || '',
+      feedback: typeof c.feedback === 'string' ? c.feedback : null,
       answers: c.answers && typeof c.answers === 'object' ? c.answers : {},
       selectedQuestions: Array.isArray(c.selectedQuestions) ? c.selectedQuestions : null,
     };
-    // Earlier versions preselected the entire bank. Keep recorded answers visible.
-    if (
-      !candidate.selectedQuestions ||
-      candidate.selectedQuestions.length === questions.length
-    ) {
+    // Legacy records without an explicit selection retain their answered questions.
+    if (!candidate.selectedQuestions) {
       candidate.selectedQuestions = Object.keys(candidate.answers).filter((id) => {
         const response = candidate.answers[id];
         return (
@@ -68,8 +87,79 @@
   }
 
   function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(candidates));
+    if (!user) return;
+    dirty = true;
+    localStorage.setItem('hiring-desk-pending-' + user.id, JSON.stringify(candidates));
+    clearTimeout(writeTimer);
+    writeTimer = setTimeout(syncCandidates, 600);
   }
+
+  function syncCandidates() {
+    if (!user || failed || !dirty) return queue;
+    dirty = false;
+    const snapshot = JSON.parse(JSON.stringify(candidates));
+    const account = user.id;
+    pendingWrites++;
+    queue = queue.then(async () => {
+      const ids = new Set(snapshot.map(c => c.id));
+      for (const [id, revision] of revisions) {
+        if (ids.has(id)) continue;
+        const result = await client.from('hiring_candidates').delete().eq('owner_id', account).eq('id', id).eq('revision', revision).select('id');
+        if (result.error || !result.data.length) throw new Error('A record changed elsewhere. Your local changes are kept in this browser.');
+        revisions.delete(id);
+        savedSnapshots.delete(id);
+      }
+      for (const candidate of snapshot) {
+        const data = JSON.stringify(candidate);
+        if (savedSnapshots.get(candidate.id) === data) continue;
+        const revision = revisions.get(candidate.id);
+        let result;
+        if (revision === undefined) {
+          result = await client.from('hiring_candidates').insert({owner_id:account,id:candidate.id,data:candidate}).select('revision');
+        } else {
+          result = await client.from('hiring_candidates').update({data:candidate,revision:revision+1,updated_at:new Date().toISOString()}).eq('owner_id',account).eq('id',candidate.id).eq('revision',revision).select('revision');
+        }
+        if (result.error || !result.data.length) throw new Error('Could not save. A record may have changed on another device. Your local changes are kept in this browser.');
+        revisions.set(candidate.id,result.data[0].revision);
+        savedSnapshots.set(candidate.id,data);
+      }
+      if (!dirty && pendingWrites === 1 && !failed) localStorage.removeItem('hiring-desk-pending-' + account);
+      toast('Changes saved');
+    }).catch(error => {
+      failed = true;
+      toast(error.message);
+      alert(error.message);
+    }).finally(() => { pendingWrites--; });
+    return queue;
+  }
+
+  function saveSettings() {
+    const snapshot = JSON.stringify(settings);
+    const backupKey = 'hiring-desk-settings-pending-' + user.id;
+    localStorage.setItem(backupKey, snapshot);
+    pendingWrites++;
+    settingsQueue = settingsQueue.then(async () => {
+      if (failed) throw new Error('An earlier save failed. Your question settings remain in this browser.');
+      let result;
+      if (settingsRevision === null) {
+        result = await client.from('hiring_settings').insert({owner_id:user.id,data:JSON.parse(snapshot)}).select('revision');
+      } else {
+        result = await client.from('hiring_settings').update({data:JSON.parse(snapshot),revision:settingsRevision+1}).eq('owner_id',user.id).eq('revision',settingsRevision).select('revision');
+      }
+      if (result.error || !result.data.length) throw new Error('Could not save questions or templates. They may have changed on another device. Your changes remain in this browser.');
+      settingsRevision = result.data[0].revision;
+      if (localStorage.getItem(backupKey) === snapshot) localStorage.removeItem(backupKey);
+      toast('Changes saved');
+    }).catch(error => {
+      failed = true;
+      alert(error.message);
+    }).finally(() => { pendingWrites--; });
+    return settingsQueue;
+  }
+
+  window.addEventListener('beforeunload', event => {
+    if (dirty || failed || pendingWrites) {event.preventDefault(); event.returnValue = '';}
+  });
 
   function toast(message) {
     document.querySelectorAll('.toast').forEach((el) => el.remove());
@@ -178,7 +268,7 @@
             ? `<div class="table"><table>
                 <thead><tr>
                   <th scope="col">Candidate</th>
-                  <th scope="col">Screening date</th>
+                  <th scope="col">Stage</th><th scope="col">Screening date</th>
                   <th scope="col">Evidence</th>
                   <th scope="col">Coverage</th>
                   <th scope="col">Score</th>
@@ -191,7 +281,7 @@
                     const style = r.ready ? (r.proceed ? 'good' : 'bad') : 'pending';
                     return `<tr>
                       <td><b>${esc(c.name)}</b><div class="muted">${esc(c.role) || '—'}</div></td>
-                      <td>${esc(c.date) || '—'}</td>
+                      <td>${esc(c.stage || 'New')}</td><td>${esc(c.date) || '—'}</td>
                       <td>${r.verified.length} / ${r.rows.length}</td>
                       <td style="min-width:120px">${coverageBar(r.weight, 'Weight')}</td>
                       <td>${percent(r.score)}</td>
@@ -231,7 +321,7 @@
       ? questions.filter((q) => (c.selectedQuestions || []).includes(q[0]))
       : questions;
     const controls = c
-      ? `<div class="panel">
+      ? `<div class="panel">${selecting ? `<label>Apply template <select data-template><option value="">Choose a template</option>${settings.templates.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('')}</select></label><button type="button" data-action="save-template">Save current selection as template</button>` : ''}
           <div class="row between">
             <div>
               <h2>${selecting ? 'Choose questions' : 'Interview questionnaire'}</h2>
@@ -250,7 +340,7 @@
               : ''
           }
         </div>`
-      : `<div class="panel">${filterMarkup()}</div>`;
+      : `<div class="panel">${filterMarkup()}<button data-action="add-question">Add question</button></div>`;
 
     const visible = c
       ? selecting
@@ -289,6 +379,7 @@
             }
             <div class="eyebrow">${esc(groups[group][0])}</div>
             <h3>${esc(title)}</h3>
+            ${!c ? `<button type="button" data-edit-question="${esc(id)}">Edit question</button>` : ''}
             <p>${esc(prompt)}</p>
             <details>
               <summary>Expected answer</summary>
@@ -392,7 +483,7 @@ ${next}`;
             <td>${esc(name)}</td>
             <td>${w}%</td>
             <td>${percent(r.ratings[i])}</td>
-            <td>${verifiedCount} / ${rowCount}</td>
+            <td>${verifiedCount} / ${rowCount}${verifiedCount === 1 ? ' · Limited evidence' : ''}</td>
           </tr>`;
         })
         .join('')}</tbody>
@@ -436,6 +527,11 @@ ${next}`;
       (c.notes
         ? `<div class="panel"><h3>Profile notes</h3><p class="muted">Candidate background and claims to validate</p><pre>${esc(c.notes)}</pre></div>`
         : '') +
+      `<section class="panel"><label>Screening stage
+        <select data-stage>${stages.map(stage => `<option ${stage === (c.stage || 'New') ? 'selected' : ''}>${esc(stage)}</option>`).join('')}</select>
+      </label><label>Interviewer assessment
+        <textarea data-assessment rows="4" placeholder="Relevant experience, strengths, gaps, and areas for Aries to validate">${esc(c.assessment || '')}</textarea>
+      </label></section>` +
       snapshot(c, r) +
       `<div class="row tabs" role="tablist" aria-label="Candidate views">${[
         ['interview', 'Interview'],
@@ -459,10 +555,10 @@ ${next}`;
           : `<section class="panel">
               <div class="row between">
                 <h2>Draft for HR</h2>
-                <button type="button" class="primary" data-action="copy">Copy feedback</button>
+                <button type="button" data-action="regenerate-feedback">Regenerate draft</button> <button type="button" data-action="print-feedback">Print / save PDF</button> <button type="button" class="primary" data-action="copy">Copy feedback</button>
               </div>
-              <p class="hint">Review or edit the draft here before sharing. Draft edits are temporary.</p>
-              <label>Feedback<textarea id="feedback" class="feedback">${esc(draft(c, r))}</textarea></label>
+              <p class="hint">Edit the draft before sharing. Changes are saved with this candidate.</p>
+              <label>Feedback<textarea id="feedback" class="feedback">${esc(c.feedback === null || c.feedback === undefined ? draft(c, r) : c.feedback)}</textarea></label>
               <p class="hint feedback-state" aria-live="polite"></p>
             </section>`)
     );
@@ -774,6 +870,38 @@ ${next}`;
       tab = b.dataset.tab;
       render();
     }
+    if (b.dataset.action === 'add-question' || b.dataset.editQuestion) {
+      const old = b.dataset.editQuestion ? questions.find(q => q[0] === b.dataset.editQuestion) : null;
+      const groupText = prompt('Competency number: ' + groups.map((g,i)=>`${i+1}. ${g[0]}`).join('  '), old ? String(old[1]+1) : '1');
+      if (groupText === null) return;
+      const group = Number(groupText)-1;
+      if (!Number.isInteger(group) || group < 0 || group >= groups.length) {alert('Choose a valid competency number.'); return;}
+      const title = prompt('Question title', old?.[2] || '');
+      if (title === null) return;
+      const promptText = prompt('Interview question', old?.[3] || '');
+      if (promptText === null) return;
+      const expected = prompt('Expected answer', old?.[4] || '');
+      if (expected === null) return;
+      if (![title,promptText,expected].every(v=>v.trim())) {alert('Complete every field.'); return;}
+      const id = old?.[0] || crypto.randomUUID();
+      const next = [id,group,title.trim(),promptText.trim(),expected.trim()];
+      if (old) {
+        const customIndex = settings.custom.findIndex(q=>q[0] === id);
+        if (customIndex >= 0) settings.custom[customIndex] = next;
+        else settings.edits[id] = next;
+      } else settings.custom.push(next);
+      const existingIndex = questions.findIndex(q=>q[0] === id);
+      if (existingIndex >= 0) questions.splice(existingIndex,1,next); else questions.push(next);
+      await saveSettings(); render();
+    }
+    if (b.dataset.action === 'save-template') {
+      const c = candidates.find(item=>item.id===selected);
+      if (!c.selectedQuestions.length) {alert('Select at least one question first.'); return;}
+      const name = prompt('Template name');
+      if (!name?.trim()) return;
+      settings.templates.push({name:name.trim(),questions:[...c.selectedQuestions]});
+      await saveSettings(); render();
+    }
     if (b.dataset.action === 'add') profile();
     if (b.dataset.action === 'edit') profile(candidates.find((item) => item.id === selected));
     if (b.dataset.action === 'choose-questions') {
@@ -786,6 +914,21 @@ ${next}`;
       render();
     }
     if (b.dataset.action === 'export') exportCandidates();
+    if (b.dataset.action === 'import-browser') {
+      const existing = new Set(candidates.map(c => c.id));
+      const prior = loadCandidates().filter(c => !existing.has(c.id));
+      candidates.push(...prior);
+      if (prior.length) save();
+      render();
+      toast(prior.length + ' browser records added');
+    }
+    if (b.dataset.action === 'sign-out') {
+      if (dirty || failed || pendingWrites) { alert('Save pending changes before signing out.'); return; }
+      await queue;
+      if (failed) return;
+      await client.auth.signOut();
+      location.reload();
+    }
     if (b.dataset.action === 'delete') {
       const c = candidates.find((item) => item.id === selected);
       if (!c) return;
@@ -796,6 +939,19 @@ ${next}`;
       view = 'pipeline';
       render();
       toast('Candidate deleted');
+    }
+    if (b.dataset.action === 'regenerate-feedback') {
+      const candidate = candidates.find(item => item.id === selected);
+      if (candidate.feedback && !confirm('Replace the saved feedback with a new draft?')) return;
+      candidate.feedback = draft(candidate, assess(candidate));
+      save(); render();
+    }
+    if (b.dataset.action === 'print-feedback') {
+      const popup = window.open('', '_blank');
+      if (!popup) {alert('Allow pop-ups to print the feedback.'); return;}
+      popup.document.write('<!doctype html><title>HR feedback</title><style>body{font:15px/1.5 system-ui;margin:40px;white-space:pre-wrap}</style>' + esc(document.querySelector('#feedback').value));
+      popup.document.close();
+      popup.focus(); popup.print();
     }
     if (b.dataset.action === 'copy') {
       const field = document.querySelector('#feedback');
@@ -822,6 +978,16 @@ ${next}`;
       render();
     }
     if (el.matches('[data-status]')) storeAnswer(el);
+    if (el.matches('[data-template]') && el.value !== '') {
+      const c = candidates.find(item=>item.id===selected);
+      const template = settings.templates[Number(el.value)];
+      c.selectedQuestions = [...new Set([...c.selectedQuestions,...template.questions.filter(id=>questions.some(q=>q[0]===id))])];
+      save(); render();
+    }
+    if (el.matches('[data-stage]')) {
+      candidates.find(item => item.id === selected).stage = el.value;
+      save();
+    }
     const checkbox = el.closest('[data-select-question]');
     if (checkbox) {
       const c = candidates.find((item) => item.id === selected);
@@ -837,6 +1003,14 @@ ${next}`;
 
   main.addEventListener('input', (event) => {
     if (event.target.matches('[data-note]')) storeAnswer(event.target);
+    if (event.target.matches('[data-assessment]')) {
+      candidates.find(item => item.id === selected).assessment = event.target.value;
+      save();
+    }
+    if (event.target.matches('#feedback')) {
+      candidates.find(item => item.id === selected).feedback = event.target.value;
+      save();
+    }
   });
 
   function storeAnswer(el) {
@@ -856,7 +1030,72 @@ ${next}`;
     importInput.value = '';
   });
 
-  candidates = loadCandidates();
-  render();
+  async function start() {
+    if (!window.supabase) {
+      main.innerHTML = '<section class="panel"><h2>Unable to load sign-in</h2><p>Check your connection and refresh. Browser records remain on this device.</p></section>';
+      return;
+    }
+    client = window.supabase.createClient('https://leolozdgikkiufybwxjm.supabase.co', 'sb_publishable_peX0Uc2ogkh941xHVH9Zpw_2j3kEjHq');
+    const {data, error} = await client.auth.getSession();
+    if (error) { alert(error.message); return; }
+    if (!data.session) {
+      main.innerHTML = `<section class="panel"><h1>Sign in to Hiring Desk</h1><p>Use your hiring workspace account.</p>
+        <form id="auth-form"><label>Email <input name="email" type="email" required></label>
+        <label>Password <input name="password" type="password" minlength="8" required></label>
+        <div class="actions"><button class="primary" type="submit">Sign in</button><button type="button" id="register">Create account</button></div>
+        <p id="auth-message" role="status"></p></form></section>`;
+      const authForm = document.querySelector('#auth-form');
+      async function authenticate(register) {
+        const values = new FormData(authForm);
+        const credentials = {email:String(values.get('email')),password:String(values.get('password'))};
+        const response = register ? await client.auth.signUp({...credentials,options:{emailRedirectTo:location.origin + location.pathname}}) : await client.auth.signInWithPassword(credentials);
+        document.querySelector('#auth-message').textContent = response.error ? response.error.message : register && !response.data.session ? 'Check your email to confirm your account, then sign in.' : 'Signed in.';
+        if (response.data?.session) location.reload();
+      }
+      authForm.addEventListener('submit', event => {event.preventDefault(); authenticate(false);});
+      document.querySelector('#register').addEventListener('click', () => {if (authForm.reportValidity()) authenticate(true);});
+      return;
+    }
+    user = data.session.user;
+    const result = await client.from('hiring_candidates').select('id,data,revision');
+    if (result.error) {main.innerHTML = '<section class="panel"><h2>Unable to load records</h2><p>Refresh to try again. Browser records remain on this device.</p></section>'; return;}
+    const settingsResult = await client.from('hiring_settings').select('data,revision').maybeSingle();
+    if (settingsResult.error) {main.innerHTML = '<section class="panel"><h2>Unable to load question settings</h2><p>Refresh and try again.</p></section>'; return;}
+    if (settingsResult.data) {
+      settings = settingsResult.data.data;
+      settings.edits ||= {}; settings.custom ||= []; settings.templates ||= [];
+      settingsRevision = settingsResult.data.revision;
+      for (const [id, question] of Object.entries(settings.edits)) {
+        const index = questions.findIndex(q=>q[0]===id);
+        if (index >= 0) questions.splice(index,1,question);
+      }
+      for (const question of settings.custom) {
+        if (!questions.some(q=>q[0]===question[0])) questions.push(question);
+      }
+    }
+    candidates = result.data.map(row => normalizeCandidate(row.data));
+    revisions = new Map(result.data.map(row => [row.id,row.revision]));
+    savedSnapshots = new Map(candidates.map(candidate => [candidate.id,JSON.stringify(candidate)]));
+    const pending = localStorage.getItem('hiring-desk-pending-' + user.id);
+    const pendingSettings = localStorage.getItem('hiring-desk-settings-pending-' + user.id);
+    if (pending || pendingSettings) {
+      failed = true;
+      main.innerHTML = '<section class="panel"><h2>Unsaved changes found</h2><p>Changes from an earlier session remain in this browser. Export the browser backup before making further changes.</p><button data-action="export-pending">Export pending backup</button> <button data-action="discard-pending">Discard pending backup and load saved records</button></section>';
+      document.querySelector('[data-action="export-pending"]').onclick = () => {
+        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify({candidates:pending ? JSON.parse(pending) : [],settings:pendingSettings ? JSON.parse(pendingSettings) : null},null,2)],{type:'application/json'})); link.download='hiring-desk-pending.json'; link.click(); URL.revokeObjectURL(link.href);
+      };
+      document.querySelector('[data-action="discard-pending"]').onclick = () => {
+        if (confirm('Discard the unsaved backup? Export it first if you need those changes.')) {
+          localStorage.removeItem('hiring-desk-pending-' + user.id);
+          localStorage.removeItem('hiring-desk-settings-pending-' + user.id);
+          location.reload();
+        }
+      };
+      return;
+    }
+    document.querySelector('.local').innerHTML = '<strong>Account storage</strong> Records are saved to your account. <button type="button" data-action="import-browser">Import browser records</button> <button type="button" data-action="sign-out">Sign out</button>';
+    render();
+  }
+  start();
 })();
 
