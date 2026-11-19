@@ -474,7 +474,7 @@
     const gaps = summarize(r.verified.filter((a) => a.status !== 'Passed'));
     const untested = r.rows.filter((a) => a.status === 'Not tested').length;
     const missing = r.rows.length - r.verified.length - untested;
-    const missingGroups = groups.filter((_, i) => r.ratings[i] === null && r.rows.some((row) => row.group === i)).map(([name]) => name);
+    const missingGroups = groups.filter((_, i) => r.ratings[i] === null).map(([name]) => name);
     const next = !r.ready
       ? 'Complete the screening evidence before making a recommendation.'
       : r.proceed
