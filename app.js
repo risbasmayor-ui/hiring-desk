@@ -34,6 +34,9 @@
   let dirty = false;
   let view = 'pipeline';
   let pipelineFilter = 'all';
+  let pipelineSearch = '';
+  let pipelineStage = 'all';
+  let difficultyFilter = 'all';
   let selected = '';
   let tab = 'interview';
   let filter = 'all';
@@ -46,6 +49,9 @@
     String(value ?? '').replace(/[&<>"']/g, (ch) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])
     );
+
+  const advancedIds = new Set(['ospf','bgpflap','cert','sdwanpolicy','majorincident','rca','redistribution','appid','dos','sase','failedchange','mentoring']);
+  const difficultyOf = q => q?.[5] || (q?.[1] === 6 || ['vlan','subnet','overlay'].includes(q?.[0]) ? 'Foundation' : advancedIds.has(q?.[0]) ? 'Advanced' : 'Core');
 
   const percent = (x) => (x == null ? '—' : `${Math.round(x)}%`);
 
@@ -248,7 +254,9 @@
   function pipeline() {
     const results = candidates.map(assess);
     const visible = candidates.map((candidate, index) => ({candidate, result:results[index]}))
-      .filter(item => pipelineFilter === 'all' || (pipelineFilter === 'pending' ? item.result.label === 'Evidence pending' : item.result.label === 'Proceed'));
+      .filter(item => pipelineFilter === 'all' || (pipelineFilter === 'pending' ? item.result.label === 'Evidence pending' : item.result.label === 'Proceed'))
+      .filter(({candidate}) => pipelineStage === 'all' || candidate.stage === pipelineStage)
+      .filter(({candidate}) => !pipelineSearch || `${candidate.name} ${candidate.role}`.toLowerCase().includes(pipelineSearch.toLowerCase()));
     const filterName = pipelineFilter === 'pending' ? 'Evidence pending' : 'Recommended to proceed';
     return (
       hero(
@@ -270,7 +278,8 @@
             ${candidates.length ? '<button type="button" data-action="export">Export JSON</button>' : ''}
           </div>
         </div>
-        ${pipelineFilter !== 'all' ? `<p class="hint">Showing ${filterName} (${visible.length}) <button type="button" data-pipeline-filter="all">Clear</button></p>` : ''}
+        <div class="pipeline-filters"><label>Search candidates<input type="search" data-pipeline-search value="${esc(pipelineSearch)}" placeholder="Name or role"></label><label>Stage<select data-stage-filter><option value="all">All stages</option>${stages.map(stage=>`<option value="${esc(stage)}" ${pipelineStage===stage?'selected':''}>${esc(stage)}</option>`).join('')}</select></label>${(pipelineFilter!=='all'||pipelineStage!=='all'||pipelineSearch)?'<button type="button" data-clear-pipeline>Clear filters</button>':''}</div>
+        ${pipelineFilter !== 'all' ? `<p class="hint">Showing ${filterName} (${visible.length})</p>` : ''}
         ${
           visible.length
             ? `<div class="table"><table>
@@ -298,8 +307,8 @@
                   })
                   .join('')}</tbody>
               </table></div>`
-            : pipelineFilter !== 'all'
-              ? `<div class="empty"><h3>No candidates in this category</h3><button type="button" data-pipeline-filter="all">Show all candidates</button></div>`
+            : candidates.length
+              ? `<div class="empty"><h3>No candidates match these filters</h3><button type="button" data-clear-pipeline>Clear filters</button></div>`
               : `<div class="empty">
                 <div class="empty-icon" aria-hidden="true">▤</div>
                 <h3>No candidates yet</h3>
@@ -352,6 +361,7 @@
                   .join('')}</div>`
               : ''
           }
+          ${selecting ? `<div class="difficulty-filters" aria-label="Question difficulty">${['all','Foundation','Core','Advanced'].map(level=>`<button type="button" data-difficulty="${level}" aria-pressed="${difficultyFilter===level}">${level==='all'?'All':level}</button>`).join('')}</div>` : ''}
           ${selecting && filter !== 'all' && selectedCounts[Number(filter)] < 3 ? `<p class="hint" role="status">Select ${3 - selectedCounts[Number(filter)]} more question${3 - selectedCounts[Number(filter)] === 1 ? '' : 's'} for ${esc(groups[Number(filter)][0])}.</p>` : ''}
           ${selecting && selectedCounts.some(count => count > 3) ? '<p class="hint" role="status">Some existing competencies have more than 3 questions. These selections are preserved. Remove questions to meet the new limit.</p>' : ''}
         </div>`
@@ -359,7 +369,7 @@
 
     const visible = c
       ? selecting
-        ? questions.filter((q) => String(q[1]) === filter)
+        ? questions.filter((q) => String(q[1]) === filter && (difficultyFilter === 'all' || difficultyOf(q) === difficultyFilter))
         : available
       : questions.filter((q) => filter === 'all' || String(q[1]) === filter);
 
@@ -393,7 +403,7 @@
                 : ''
             }
             <div class="eyebrow">${esc(groups[group][0])}</div>
-            <h3>${esc(title)}</h3>
+            <h3>${esc(title)} <span class="difficulty-badge">${esc(difficultyOf(questions.find(q=>q[0]===id)))}</span></h3>
             
             <p>${esc(prompt)}</p>
             <details>
@@ -889,7 +899,7 @@ ${next}`;
   }
 
   function exportCandidates() {
-    const blob = new Blob([JSON.stringify(candidates, null, 2)], {
+    const blob = new Blob([JSON.stringify({candidates, questions:questions.map(q=>({id:q[0],difficulty:difficultyOf(q)}))}, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
@@ -1018,6 +1028,8 @@ ${next}`;
     const b = event.target.closest('button');
     if (!b) return;
 
+    if (b.hasAttribute('data-clear-pipeline')) { pipelineSearch=''; pipelineStage='all'; pipelineFilter='all'; render(); return; }
+    if (b.dataset.difficulty) { difficultyFilter=b.dataset.difficulty; render(); return; }
     if (b.dataset.pipelineFilter) {
       const choice = b.dataset.pipelineFilter;
       pipelineFilter = choice === pipelineFilter ? 'all' : choice;
@@ -1107,7 +1119,12 @@ ${next}`;
     if (b.dataset.action === 'delete') {
       const c = candidates.find((item) => item.id === selected);
       if (!c) return;
-      if (!confirm(`Delete ${c.name}? This cannot be undone.`)) return;
+      const popup=document.createElement('dialog');
+      const count=assess(c).verified.length;
+      popup.innerHTML=`<h2>Delete candidate?</h2><p><strong>${esc(c.name)}</strong> · ${esc(c.role || 'No role specified')} · ${count} questions scored with evidence</p><p>The candidate and all scores, notes and evidence will be permanently removed. This cannot be undone.</p>${c.completion ? '<p><strong>The completed assessment and its locked evidence will also be deleted.</strong></p>' : ''}<div class="actions"><button type="button" data-cancel-delete>Cancel</button><button type="button" class="danger" data-confirm-delete>Delete permanently</button></div>`;
+      document.body.appendChild(popup); popup.showModal();
+      const confirmed=await new Promise(resolve=>{popup.querySelector('[data-cancel-delete]').onclick=()=>resolve(false); popup.querySelector('[data-confirm-delete]').onclick=()=>resolve(true); popup.addEventListener('cancel',e=>{e.preventDefault();resolve(false);});});
+      popup.close(); popup.remove(); if (!confirmed) return;
       candidates = candidates.filter((item) => item.id !== selected);
       save();
       selected = '';
@@ -1146,6 +1163,8 @@ ${next}`;
   main.addEventListener('change', (event) => {
     if (!workspaceReady) return;
     const el = event.target;
+    if (el.matches('[data-stage-filter]')) { pipelineStage=el.value; render(); }
+    if (el.matches('[data-difficulty-filter]')) { difficultyFilter=el.value; render(); }
     if (el.matches('[data-filter]')) {
       filter = el.value;
       render();
@@ -1216,6 +1235,7 @@ ${next}`;
 
   main.addEventListener('input', (event) => {
     if (!workspaceReady) return;
+    if (event.target.matches('[data-pipeline-search]')) { pipelineSearch=event.target.value; const pos=event.target.selectionStart; render(); const input=main.querySelector('[data-pipeline-search]'); input?.focus(); input?.setSelectionRange(pos,pos); }
     if (event.target.matches('[data-note]')) storeAnswer(event.target);
     if (event.target.matches('[data-assessment]')) {
       if (candidates.find(item => item.id === selected)?.completion) return;
@@ -1305,6 +1325,7 @@ ${next}`;
         if (!questions.some(q=>q[0]===question[0])) questions.push(question);
       }
     }
+    for (const q of questions) q[5] = difficultyOf(q);
     candidates = result.data.map(row => normalizeCandidate(row.data));
     revisions = new Map(result.data.map(row => [row.id,row.revision]));
     savedSnapshots = new Map(candidates.map(candidate => [candidate.id,JSON.stringify(candidate)]));
