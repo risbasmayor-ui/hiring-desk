@@ -1047,3 +1047,20 @@ button:focus-visible, a:focus-visible, summary:focus-visible,
 input:focus-visible, select:focus-visible, textarea:focus-visible,
 .file-label:focus-within { outline-color: #b76d71; }
 body.auth-locked main > .panel { border-color: #e9e3e2; box-shadow: 0 16px 45px rgba(35, 25, 25, .08); }
+
+
+.coverage-list { display: flex; flex-wrap: wrap; gap: 8px 18px; list-style: none; padding: 0; margin: 10px 0 0; color: var(--ink-soft); font-size: 12px; }
+.coverage-list li { margin: 0; }
+@media (max-width: 860px) {
+  .table { overflow: visible; border: 0; }
+  .table table, .table tbody, .table tr, .table td, .table tbody th { display: block; width: 100%; }
+  .table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+  .table tbody tr { margin-bottom: 12px; border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
+  .table tbody td, .table tbody th { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+  .table tbody td::before { content: attr(data-label); flex: 0 0 34%; color: var(--muted); font-size: 11px; font-weight: 600; }
+  .table tbody tr:last-child td, .table tbody tr:last-child th { border-bottom: 1px solid var(--line-soft); }
+  .table tbody tr td:last-child, .table tbody tr th:last-child { border-bottom: 0; }
+  .table tbody th { background: var(--paper-deep); }
+  .table td button { white-space: normal; }
+  .coverage-list { display: grid; }
+}
