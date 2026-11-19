@@ -71,6 +71,7 @@
       stage: stages.includes(c.stage) ? c.stage : 'New',
       assessment: c.assessment || '',
       feedback: typeof c.feedback === 'string' ? c.feedback : null,
+      completion: c.completion && typeof c.completion === 'object' ? c.completion : null,
       answers: c.answers && typeof c.answers === 'object' ? c.answers : {},
       selectedQuestions: Array.isArray(c.selectedQuestions) ? c.selectedQuestions : null,
     };
@@ -173,6 +174,7 @@
   }
 
   function assess(c) {
+    if (c.completion) return c.completion.result;
     const rows = questions
       .filter((q) => (c.selectedQuestions || []).includes(q[0]))
       .map(([id, group, title]) => ({ id, group, title, ...answer(c, id) }));
@@ -281,7 +283,7 @@
                     const r = results[i];
                     const style = r.ready ? (r.proceed ? 'good' : 'bad') : 'pending';
                     return `<tr>
-                      <td><b>${esc(c.name)}</b><div class="muted">${esc(c.role) || '—'}</div></td>
+                      <td><b>${esc(c.name)}</b> ${c.completion ? pill('Completed', 'good') : ''}<div class="muted">${esc(c.role) || '—'}</div></td>
                       <td>${esc(c.stage || 'New')}</td><td>${esc(c.date) || '—'}</td>
                       <td>${r.verified.length} / ${r.rows.length}</td>
                       <td style="min-width:120px">${coverageBar(r.weight, 'Weight')}</td>
@@ -526,6 +528,7 @@ ${next}`;
           ${uncoveredNote}
           <details><summary>Competency coverage</summary><ul class="coverage-list">${breakdown}</ul></details>
         </div>
+        ${tab === 'interview' ? '<button type="button" class="primary" data-action="complete">Complete assessment</button>' : ''}
         <button type="button" class="danger" data-action="delete" ${candidates.length ? '' : 'hidden'}>Delete candidate</button>
       </div>`;
   }
@@ -533,6 +536,86 @@ ${next}`;
   function refreshSnapshot(c) {
     const header = main.querySelector('.score-header');
     if (header) header.outerHTML = snapshot(c, assess(c));
+  }
+
+  function makeCompletion(candidate) {
+    const result = assess(candidate);
+    const evidence = (candidate.selectedQuestions || []).map(id => {
+      const question = questions.find(item => item[0] === id);
+      const response = answer(candidate, id);
+      return {id, title:question?.[2] || 'Question unavailable', prompt:question?.[3] || '', competency:question ? groups[question[1]][0] : 'Unknown', status:response.status, note:response.note || ''};
+    });
+    return {
+      version: 1,
+      completedAt: new Date().toISOString(),
+      candidateName: candidate.name,
+      candidateRole: candidate.role,
+      interviewer: candidate.interviewer,
+      assessment: candidate.assessment,
+      result: JSON.parse(JSON.stringify(result)),
+      competencies: groups.map(([name, weight], index) => ({
+        name, weight, score:result.ratings[index],
+        scored:result.verified.filter(item=>item.group===index).length,
+        selected:result.rows.filter(item=>item.group===index).length
+      })),
+      evidence,
+      feedback: candidate.feedback === null || candidate.feedback === undefined ? draft(candidate,result) : candidate.feedback
+    };
+  }
+
+  function completedSummary(candidate) {
+    const record = candidate.completion;
+    const result = record.result;
+    const date = new Date(record.completedAt);
+    const completedDate = Number.isNaN(date.getTime()) ? record.completedAt : date.toLocaleString();
+    return `<section class="panel"><div class="row between"><div><h2>Completed assessment</h2><p class="hint">Completed ${esc(completedDate)} · Assessment is locked</p></div><button type="button" data-action="print-completed">Print / save PDF</button></div>
+      <p class="hint">Final record for ${esc(record.candidateName)}${record.candidateRole ? ' · '+esc(record.candidateRole) : ''}</p>
+      <p><strong>${percent(result.score)} weighted score · ${result.weight}% coverage · ${esc(result.label)}</strong></p></section>
+      <section class="panel"><h2>Competency breakdown</h2><div class="table"><table><thead><tr><th>Competency</th><th>Weight</th><th>Score</th><th>Evidence</th></tr></thead><tbody>
+      ${record.competencies.map(item=>`<tr><td>${esc(item.name)}</td><td>${item.weight}%</td><td>${percent(item.score)}</td><td>${item.scored}/${item.selected}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel"><h2>Question evidence</h2><div class="table"><table><thead><tr><th>Competency</th><th>Question</th><th>Result</th><th>Observation</th></tr></thead><tbody>
+      ${record.evidence.map(item=>`<tr><td>${esc(item.competency)}</td><td><b>${esc(item.title)}</b><p>${esc(item.prompt)}</p></td><td>${esc(item.status)}</td><td>${esc(item.note) || '—'}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="panel"><h2>HR feedback</h2><pre>${esc(record.feedback)}</pre></section>`;
+  }
+
+  function showCompletionDialog(candidate) {
+    const result = assess(candidate);
+    const unscored = candidate.selectedQuestions.length - result.verified.length;
+    const popup = document.createElement('dialog');
+    popup.setAttribute('aria-labelledby', 'complete-title');
+    popup.innerHTML = `<h2 id="complete-title">Complete assessment?</h2>
+      <p>Questions scored with evidence: ${result.verified.length} of ${candidate.selectedQuestions.length}</p>
+      <p>Coverage: ${result.weight}% of 80% needed</p><p>Current verdict: ${esc(result.label)}</p>
+      ${unscored > 0 ? `<p class="hint">${unscored} selected question${unscored === 1 ? ' is' : 's are'} unscored or missing an observation.</p>` : ''}
+      ${result.weight < 80 ? '<p class="hint">Coverage is below 80%. You may still complete this assessment.</p>' : ''}
+      <p class="hint">Completion permanently locks the assessment. It cannot be reopened or edited.</p>
+      <div class="actions"><button type="button" data-cancel-completion>Keep editing</button><button type="button" class="primary" data-confirm-completion>Complete assessment</button></div>`;
+    document.body.appendChild(popup);
+    popup.addEventListener('close', () => popup.remove(), {once:true});
+    popup.querySelector('[data-cancel-completion]').addEventListener('click', () => popup.close());
+    popup.querySelector('[data-confirm-completion]').addEventListener('click', async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      clearTimeout(writeTimer);
+      await syncCandidates();
+      await queue;
+      if (failed) {button.disabled = false; alert('The assessment could not be saved. Resolve pending changes before completing.'); return;}
+      candidate.completion = makeCompletion(candidate);
+      save();
+      clearTimeout(writeTimer);
+      await syncCandidates();
+      await queue;
+      if (failed) {
+        candidate.completion = null;
+        button.disabled = false;
+        alert('The completed assessment could not be confirmed as saved. Your unsaved changes are retained in this browser.');
+        return;
+      }
+      popup.close();
+      selecting = false;
+      render();
+    });
+    popup.showModal();
   }
 
   function candidate() {
@@ -543,6 +626,12 @@ ${next}`;
     }
     const r = assess(c);
     const style = r.ready ? (r.proceed ? 'good' : 'bad') : 'pending';
+    if (c.completion) {
+      return `<div class="top"><button type="button" data-view="pipeline">← Candidates</button></div>` +
+        hero('Candidate screening', esc(c.name), 'Completed assessment', '<button type="button" data-action="edit">Edit profile</button>') +
+        `<section class="panel"><label>Screening stage<select data-stage>${stages.map(stage=>`<option ${stage === (c.stage || 'New') ? 'selected' : ''}>${esc(stage)}</option>`).join('')}</select></label></section>` +
+        completedSummary(c);
+    }
     const meta = [c.role, c.date, c.interviewer].filter(Boolean).map(esc).join(' · ') || 'MS L2 Engineer';
 
     return (
@@ -825,6 +914,7 @@ ${next}`;
           if (!next.name) continue;
           const idx = candidates.findIndex((c) => c.id === next.id);
           if (idx >= 0) {
+            if (candidates[idx].completion) continue;
             candidates[idx] = next;
             updated++;
           } else if (existing.has(next.id)) {
@@ -943,8 +1033,21 @@ ${next}`;
       tab = b.dataset.tab;
       render();
     }
+    if (b.dataset.action === 'complete') {
+      const candidate = candidates.find(item => item.id === selected);
+      if (candidate && !candidate.completion) showCompletionDialog(candidate);
+    }
+    if (b.dataset.action === 'print-completed') {
+      const candidate = candidates.find(item => item.id === selected);
+      if (!candidate?.completion) return;
+      const popup = window.open('', '_blank');
+      if (!popup) {alert('Allow pop-ups to print the assessment.'); return;}
+      popup.document.write('<!doctype html><title>Completed assessment</title><style>body{font:14px/1.5 system-ui;margin:32px}section{margin:22px 0}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #ccc;vertical-align:top}pre{white-space:pre-wrap}button{display:none}</style>' + completedSummary(candidate));
+      popup.document.close(); popup.focus(); popup.print();
+    }
     if (b.dataset.action === 'save-template') {
       const c = candidates.find(item=>item.id===selected);
+      if (c.completion) return;
       if (!c.selectedQuestions.length) {alert('Select at least one question first.'); return;}
       const name = prompt('Template name');
       if (!name?.trim()) return;
@@ -954,6 +1057,7 @@ ${next}`;
     if (b.dataset.action === 'add') profile();
     if (b.dataset.action === 'edit') profile(candidates.find((item) => item.id === selected));
     if (b.dataset.action === 'choose-questions') {
+      if (candidates.find(item=>item.id===selected)?.completion) return;
       selecting = !selecting;
       filter = selecting ? '0' : 'all';
       render();
@@ -991,6 +1095,7 @@ ${next}`;
     }
     if (b.dataset.action === 'regenerate-feedback') {
       const candidate = candidates.find(item => item.id === selected);
+      if (candidate?.completion) return;
       if (candidate.feedback && !confirm('Replace the saved feedback with a new draft?')) return;
       candidate.feedback = draft(candidate, assess(candidate));
       save(); render();
@@ -1030,6 +1135,7 @@ ${next}`;
     if (el.matches('[data-status]')) storeAnswer(el);
     if (el.matches('[data-template]') && el.value !== '') {
       const c = candidates.find(item=>item.id===selected);
+      if (c.completion) return;
       const template = settings.templates[Number(el.value)];
       const selection = new Set(c.selectedQuestions);
       const skipped = [];
@@ -1061,6 +1167,7 @@ ${next}`;
     const checkbox = el.closest('[data-select-question]');
     if (checkbox) {
       const c = candidates.find((item) => item.id === selected);
+      if (c.completion) return;
       const set = new Set(c.selectedQuestions || []);
       if (checkbox.checked) {
         const question = questions.find(item => item[0] === checkbox.value);
@@ -1084,10 +1191,12 @@ ${next}`;
     if (!workspaceReady) return;
     if (event.target.matches('[data-note]')) storeAnswer(event.target);
     if (event.target.matches('[data-assessment]')) {
+      if (candidates.find(item => item.id === selected)?.completion) return;
       candidates.find(item => item.id === selected).assessment = event.target.value;
       save();
     }
     if (event.target.matches('#feedback')) {
+      if (candidates.find(item => item.id === selected)?.completion) return;
       candidates.find(item => item.id === selected).feedback = event.target.value;
       save();
     }
@@ -1096,6 +1205,7 @@ ${next}`;
   function storeAnswer(el) {
     const fields = el.closest('[data-question]');
     const c = candidates.find((item) => item.id === selected);
+    if (!c || c.completion) return;
     c.answers[fields.dataset.question] = {
       status: fields.querySelector('[data-status]').value,
       note: fields.querySelector('[data-note]').value,
@@ -1195,6 +1305,7 @@ ${next}`;
   }
   start();
 })();
+
 
 
 
