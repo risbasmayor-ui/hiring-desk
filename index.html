@@ -56,7 +56,7 @@
     </button>
     <div class="nav-backdrop" id="nav-backdrop" hidden></div>
 
-    <main id="main" tabindex="-1"></main>
+    <main id="main" tabindex="-1"><section class="panel" role="status">Loading workspace…</section></main>
   </div>
 
   <dialog id="profile" aria-labelledby="form-title">
@@ -69,7 +69,11 @@
         <input name="role" maxlength="160" autocomplete="organization-title">
       </label>
       <label>Screening date
-        <input name="date" type="date">
+        <input name="date" type="text" inputmode="numeric" placeholder="DD/MM/YYYY" aria-describedby="date-hint">
+      </label>
+      <span id="date-hint" class="hint">Type or paste DD/MM/YYYY, or use the date picker.</span>
+      <label>Choose date
+        <input id="date-picker" type="date">
       </label>
       <label>Recruiter or interviewer
         <input name="interviewer" maxlength="120" autocomplete="name">
@@ -85,5 +89,6 @@
   </dialog>
 </body>
 </html>
+
 
 
