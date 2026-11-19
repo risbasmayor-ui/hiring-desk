@@ -33,6 +33,7 @@
   let pendingWrites = 0;
   let dirty = false;
   let view = 'pipeline';
+  let pipelineFilter = 'all';
   let selected = '';
   let tab = 'interview';
   let filter = 'all';
@@ -246,6 +247,9 @@
 
   function pipeline() {
     const results = candidates.map(assess);
+    const visible = candidates.map((candidate, index) => ({candidate, result:results[index]}))
+      .filter(item => pipelineFilter === 'all' || (pipelineFilter === 'pending' ? item.result.label === 'Evidence pending' : item.result.label === 'Proceed'));
+    const filterName = pipelineFilter === 'pending' ? 'Evidence pending' : 'Recommended to proceed';
     return (
       hero(
         'Technical screening',
@@ -254,9 +258,9 @@
         '<button type="button" class="primary" data-action="add">＋ Add candidate</button>'
       ) +
       `<div class="metrics">
-        <div class="metric"><strong>${candidates.length}</strong><span>Candidates</span></div>
-        <div class="metric accent-pending"><strong>${results.filter((r) => !r.ready).length}</strong><span>Evidence pending</span></div>
-        <div class="metric accent-good"><strong>${results.filter((r) => r.proceed).length}</strong><span>Recommended to proceed</span></div>
+        <button type="button" class="metric ${pipelineFilter === 'all' ? 'active' : ''}" data-pipeline-filter="all" aria-pressed="${pipelineFilter === 'all'}"><strong>${candidates.length}</strong><span>Candidates</span></button>
+        <button type="button" class="metric accent-pending ${pipelineFilter === 'pending' ? 'active' : ''}" data-pipeline-filter="pending" aria-pressed="${pipelineFilter === 'pending'}"><strong>${results.filter((r) => !r.ready).length}</strong><span>Evidence pending</span></button>
+        <button type="button" class="metric accent-good ${pipelineFilter === 'proceed' ? 'active' : ''}" data-pipeline-filter="proceed" aria-pressed="${pipelineFilter === 'proceed'}"><strong>${results.filter((r) => r.proceed).length}</strong><span>Recommended to proceed</span></button>
       </div>
       <section class="panel">
         <div class="row between">
@@ -266,8 +270,9 @@
             ${candidates.length ? '<button type="button" data-action="export">Export JSON</button>' : ''}
           </div>
         </div>
+        ${pipelineFilter !== 'all' ? `<p class="hint">Showing ${filterName} (${visible.length}) <button type="button" data-pipeline-filter="all">Clear</button></p>` : ''}
         ${
-          candidates.length
+          visible.length
             ? `<div class="table"><table>
                 <thead><tr>
                   <th scope="col">Candidate</th>
@@ -278,9 +283,8 @@
                   <th scope="col">Recommendation</th>
                   <th scope="col"><span class="sr-only">Actions</span></th>
                 </tr></thead>
-                <tbody>${candidates
-                  .map((c, i) => {
-                    const r = results[i];
+                <tbody>${visible
+                  .map(({candidate: c, result: r}) => {
                     const style = r.ready ? (r.proceed ? 'good' : 'bad') : 'pending';
                     return `<tr>
                       <td><b>${esc(c.name)}</b> ${c.completion ? pill('Completed', 'good') : ''}<div class="muted">${esc(c.role) || '—'}</div></td>
@@ -294,7 +298,9 @@
                   })
                   .join('')}</tbody>
               </table></div>`
-            : `<div class="empty">
+            : pipelineFilter !== 'all'
+              ? `<div class="empty"><h3>No candidates in this category</h3><button type="button" data-pipeline-filter="all">Show all candidates</button></div>`
+              : `<div class="empty">
                 <div class="empty-icon" aria-hidden="true">▤</div>
                 <h3>No candidates yet</h3>
                 <p class="muted">Add a candidate to start their technical screening against the MS L2 question bank.</p>
@@ -585,6 +591,7 @@ ${next}`;
     popup.setAttribute('aria-labelledby', 'complete-title');
     popup.innerHTML = `<h2 id="complete-title">Complete assessment?</h2>
       <p>Questions scored with evidence: ${result.verified.length} of ${candidate.selectedQuestions.length}</p>
+      <p>Weighted score: ${percent(result.score)}</p>
       <p>Coverage: ${result.weight}% of 80% needed</p><p>Current verdict: ${esc(result.label)}</p>
       ${unscored > 0 ? `<p class="hint">${unscored} selected question${unscored === 1 ? ' is' : 's are'} unscored or missing an observation.</p>` : ''}
       ${result.weight < 80 ? '<p class="hint">Coverage is below 80%. You may still complete this assessment.</p>' : ''}
@@ -629,7 +636,7 @@ ${next}`;
     if (c.completion) {
       return `<div class="top"><button type="button" data-view="pipeline">← Candidates</button></div>` +
         hero('Candidate screening', esc(c.name), 'Completed assessment', '<button type="button" data-action="edit">Edit profile</button>') +
-        `<section class="panel"><label>Screening stage<select data-stage>${stages.map(stage=>`<option ${stage === (c.stage || 'New') ? 'selected' : ''}>${esc(stage)}</option>`).join('')}</select></label></section>` +
+        `<section class="panel"><label>Screening stage<select data-stage>${stages.map(stage=>`<option ${stage === (c.stage || 'New') ? 'selected' : ''} ${!['HR review','Closed'].includes(stage) ? 'disabled' : ''}>${esc(stage)}</option>`).join('')}</select></label></section>` +
         completedSummary(c);
     }
     const meta = [c.role, c.date, c.interviewer].filter(Boolean).map(esc).join(' · ') || 'MS L2 Engineer';
@@ -1011,6 +1018,11 @@ ${next}`;
     const b = event.target.closest('button');
     if (!b) return;
 
+    if (b.dataset.pipelineFilter) {
+      const choice = b.dataset.pipelineFilter;
+      pipelineFilter = choice === pipelineFilter ? 'all' : choice;
+      render();
+    }
     if (b.dataset.view) {
       view = b.dataset.view;
       filter = 'all';
@@ -1074,6 +1086,16 @@ ${next}`;
       if (prior.length) save();
       render();
       toast(prior.length + ' browser records added');
+    }
+    if (b.dataset.action === 'export-recovery') {
+      const prefix = 'hiring-desk-recovery-' + user.id + '-';
+      const backups = Object.keys(localStorage).filter(key => key.startsWith(prefix)).map(key => JSON.parse(localStorage.getItem(key)));
+      const blob = new Blob([JSON.stringify(backups.map(item => ({
+        createdAt:item.createdAt,
+        candidates:item.candidates ? JSON.parse(item.candidates) : [],
+        settings:item.settings ? JSON.parse(item.settings) : null
+      })),null,2)],{type:'application/json'});
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download='hiring-desk-recovery.json'; link.click(); URL.revokeObjectURL(link.href);
     }
     if (b.dataset.action === 'sign-out') {
       if (dirty || failed || pendingWrites) { alert('Save pending changes before signing out.'); return; }
@@ -1161,7 +1183,12 @@ ${next}`;
       }
     }
     if (el.matches('[data-stage]')) {
-      candidates.find(item => item.id === selected).stage = el.value;
+      const candidate = candidates.find(item => item.id === selected);
+      if (candidate.completion && !['HR review', 'Closed'].includes(el.value)) {
+        el.value = candidate.stage;
+        return;
+      }
+      candidate.stage = el.value;
       save();
     }
     const checkbox = el.closest('[data-select-question]');
@@ -1281,30 +1308,61 @@ ${next}`;
     candidates = result.data.map(row => normalizeCandidate(row.data));
     revisions = new Map(result.data.map(row => [row.id,row.revision]));
     savedSnapshots = new Map(candidates.map(candidate => [candidate.id,JSON.stringify(candidate)]));
-    const pending = localStorage.getItem('hiring-desk-pending-' + user.id);
-    const pendingSettings = localStorage.getItem('hiring-desk-settings-pending-' + user.id);
+    const pendingKey = 'hiring-desk-pending-' + user.id;
+    const settingsKey = 'hiring-desk-settings-pending-' + user.id;
+    const pending = localStorage.getItem(pendingKey);
+    const pendingSettings = localStorage.getItem(settingsKey);
+
+    function enterWorkspace() {
+      workspaceReady = true;
+      document.body.classList.remove('auth-locked');
+      const hasBackup = Object.keys(localStorage).some(key => key.startsWith('hiring-desk-recovery-' + user.id + '-'));
+      document.querySelector('.local').innerHTML = '<strong>Account storage</strong> Records are saved to your account. <button type="button" data-action="import-browser">Import browser records</button>' +
+        (hasBackup ? ' <button type="button" data-action="export-recovery">Export recovery backup</button>' : '') +
+        ' <button type="button" data-action="sign-out">Sign out</button>';
+      render();
+    }
+
     if (pending || pendingSettings) {
-      failed = true;
-      main.innerHTML = '<section class="panel"><h2>Unsaved changes found</h2><p>Changes from an earlier session remain in this browser. Export the browser backup before making further changes.</p><button data-action="export-pending">Export pending backup</button> <button data-action="discard-pending">Discard pending backup and load saved records</button></section>';
-      document.querySelector('[data-action="export-pending"]').onclick = () => {
-        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify({candidates:pending ? JSON.parse(pending) : [],settings:pendingSettings ? JSON.parse(pendingSettings) : null},null,2)],{type:'application/json'})); link.download='hiring-desk-pending.json'; link.click(); URL.revokeObjectURL(link.href);
+      main.innerHTML = `<section class="panel"><h2>Unsaved changes found</h2>
+        <p>Changes from an earlier session remain on this device and may not be saved to your account.</p>
+        <p>Export a backup, or continue with the records saved in your account. A recovery copy will stay on this device.</p>
+        <button type="button" data-action="export-pending">Export pending backup</button>
+        <button type="button" data-action="review-pending">Continue with saved records</button>
+        <div id="recovery-confirm" hidden><p>Continuing loads the account records without applying the pending changes. A copy of those changes will remain on this device.</p>
+          <button type="button" data-action="confirm-pending">Continue</button>
+          <button type="button" data-action="cancel-pending">Go back</button>
+        </div><p id="recovery-message" role="status"></p></section>`;
+      main.querySelector('[data-action="export-pending"]').onclick = () => {
+        const data = JSON.stringify({candidates:pending ? JSON.parse(pending) : [],settings:pendingSettings ? JSON.parse(pendingSettings) : null},null,2);
+        const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([data],{type:'application/json'})); link.download='hiring-desk-pending.json'; link.click(); URL.revokeObjectURL(link.href);
       };
-      document.querySelector('[data-action="discard-pending"]').onclick = () => {
-        if (confirm('Discard the unsaved backup? Export it first if you need those changes.')) {
-          localStorage.removeItem('hiring-desk-pending-' + user.id);
-          localStorage.removeItem('hiring-desk-settings-pending-' + user.id);
-          location.reload();
+      main.querySelector('[data-action="review-pending"]').onclick = () => { main.querySelector('#recovery-confirm').hidden = false; };
+      main.querySelector('[data-action="cancel-pending"]').onclick = () => { main.querySelector('#recovery-confirm').hidden = true; };
+      main.querySelector('[data-action="confirm-pending"]').onclick = () => {
+        const message = main.querySelector('#recovery-message');
+        try {
+          if (localStorage.getItem(pendingKey) !== pending || localStorage.getItem(settingsKey) !== pendingSettings) {
+            message.textContent = 'Pending changes changed in another tab. Refresh this page before continuing.';
+            return;
+          }
+          const backupKey = 'hiring-desk-recovery-' + user.id + '-' + crypto.randomUUID();
+          localStorage.setItem(backupKey, JSON.stringify({createdAt:new Date().toISOString(),candidates:pending,settings:pendingSettings}));
+          localStorage.removeItem(pendingKey);
+          localStorage.removeItem(settingsKey);
+          failed = false;
+          enterWorkspace();
+        } catch {
+          message.textContent = 'Could not preserve the recovery copy. Export the backup and try again.';
         }
       };
       return;
     }
-    workspaceReady = true;
-    document.body.classList.remove('auth-locked');
-    document.querySelector('.local').innerHTML = '<strong>Account storage</strong> Records are saved to your account. <button type="button" data-action="import-browser">Import browser records</button> <button type="button" data-action="sign-out">Sign out</button>';
-    render();
+    enterWorkspace();
   }
   start();
 })();
+
 
 
 
