@@ -645,7 +645,7 @@ ${next}`;
     const style = r.ready ? (r.proceed ? 'good' : 'bad') : 'pending';
     if (c.completion) {
       return `<div class="top"><button type="button" data-view="pipeline">← Candidates</button></div>` +
-        hero('Candidate screening', esc(c.name), 'Completed assessment', '<button type="button" data-action="edit">Edit profile</button>') +
+        hero('Candidate screening', esc(c.name), 'Completed assessment', '<button type="button" data-action="edit">Edit profile</button><button type="button" class="danger" data-action="delete">Delete candidate</button>') +
         `<section class="panel"><label>Screening stage<select data-stage>${stages.map(stage=>`<option ${stage === (c.stage || 'New') ? 'selected' : ''} ${!['HR review','Closed'].includes(stage) ? 'disabled' : ''}>${esc(stage)}</option>`).join('')}</select></label></section>` +
         completedSummary(c);
     }
