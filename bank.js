@@ -1,6 +1,6 @@
 const groups = [
   ['Routing & Switching',20], ['Firewall & Security',20], ['SD-WAN',15],
-  ['Incident & Problem Management',15], ['Change & Customer Management',15], ['Role Fit & Motivation',5], ['Fundamentals',10]
+  ['Incident & Problem Management',10], ['Change & Customer Management',15], ['Role Fit & Motivation',5], ['Fundamentals',15]
 ];
 const questions = [
   ['mpls',0,'MPLS branch outage','A branch loses connectivity to HQ over MPLS. How do you isolate the failure and restore service?','Establish impact and recent changes. Check CE interfaces and errors, CE–PE reachability and routing, then compare route tables and return paths at both ends. Use sourced probes and known-good comparisons. Escalate to the carrier with timestamps, circuit ID and evidence. Verify application recovery.'],
