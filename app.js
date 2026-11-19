@@ -12,7 +12,13 @@
   const stages = ['New', 'Technical screening', 'Interview with Aries', 'HR review', 'Closed'];
   const points = { Passed: 100, Partial: 50, Failed: 0 };
 
-  let settings = {edits:{}, custom:[], templates:[]};
+  const starterTemplates = [
+    {name:'L2 initial screening',questions:['mpls','ospf','bgp','stp','panorama','ipsec','sdwan','incident','change','fund_subnet','fund_dhcp']},
+    {name:'Firewall focused',questions:['panorama','ipsec','web','nat','ha','cert','change']},
+    {name:'Routing focused',questions:['mpls','ospf','bgp','stp','routecompare','bgpflap','fund_subnet']},
+    {name:'L1 assessment',questions:['fund_vlan','fund_ip','fund_subnet','fund_dhcp','fund_dns','fund_tools','monitor','incident']}
+  ];
+  let settings = {edits:{}, custom:[], templates:starterTemplates.map(t=>({...t,questions:[...t.questions]}))};
   let settingsRevision = null;
   let candidates = [];
   let client;
@@ -475,7 +481,7 @@ ${next}`;
             <td>${esc(name)}</td>
             <td>${w}%</td>
             <td>${percent(r.ratings[i])}</td>
-            <td>${verifiedCount} / ${rowCount}</td>
+            <td>${verifiedCount} / ${rowCount}${verifiedCount === 1 ? ' · Limited evidence' : ''}</td>
           </tr>`;
         })
         .join('')}</tbody>
