@@ -1064,3 +1064,8 @@ body.auth-locked main > .panel { border-color: #e9e3e2; box-shadow: 0 16px 45px 
   .table td button { white-space: normal; }
   .coverage-list { display: grid; }
 }
+
+
+.coverage-list li { flex: 1 1 190px; }
+.competency-progress { display: block; height: 5px; margin-top: 5px; border-radius: 99px; background: var(--paper-deep); overflow: hidden; }
+.competency-progress > i { display: block; height: 100%; background: var(--teal); border-radius: inherit; }
