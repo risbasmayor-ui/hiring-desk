@@ -174,6 +174,21 @@
     setTimeout(() => el.remove(), 2800);
   }
 
+  function completionReadiness(candidate) {
+    const result = assess(candidate);
+    const selected = candidate.selectedQuestions || [];
+    const unscored = Math.max(0, selected.length - result.verified.length);
+    const blockers = [];
+    if (!selected.length) blockers.push('Select at least one question');
+    if (unscored) blockers.push(`${unscored} question${unscored === 1 ? '' : 's'} unscored or missing an observation`);
+    if (result.weight < 80) blockers.push(`Coverage ${result.weight}% of 80% needed`);
+    if (result.weight >= 80 && !result.ready) {
+      if (result.ratings[0] === null) blockers.push('Routing & Switching evidence required');
+      if (result.ratings[1] === null) blockers.push('Firewall & Security evidence required');
+    }
+    return {ready: selected.length > 0 && unscored === 0 && result.weight >= 80 && result.ready, message: blockers.join(' · ')};
+  }
+
   function assess(c) {
     if (c.completion) return c.completion.result;
     const rows = questions
@@ -328,9 +343,27 @@
     </label></div>`;
   }
 
+  function sortQuestionsByCompetency(items) {
+    return items
+      .map((item, index) => ({item, index}))
+      .sort((a, b) => {
+        const groupA = Number.isInteger(Number(a.item[1])) ? Number(a.item[1]) : groups.length;
+        const groupB = Number.isInteger(Number(b.item[1])) ? Number(b.item[1]) : groups.length;
+        return groupA - groupB || a.index - b.index;
+      })
+      .map(entry => entry.item);
+  }
+
+  function orderedQuestionIds(ids) {
+    const selected = new Set(ids || []);
+    const ordered = sortQuestionsByCompetency(questions.filter(question => selected.has(question[0]))).map(question => question[0]);
+    const known = new Set(ordered);
+    return [...ordered, ...(ids || []).filter(id => !known.has(id))];
+  }
+
   function questionList(c) {
     const available = c
-      ? questions.filter((q) => (c.selectedQuestions || []).includes(q[0])).sort((a, b) => a[1] - b[1])
+      ? sortQuestionsByCompetency(questions.filter((q) => (c.selectedQuestions || []).includes(q[0])))
       : questions;
     const selectedCounts = groups.map((_, group) =>
       available.filter((question) => question[1] === group).length
@@ -538,7 +571,7 @@ ${next}`;
           ${uncoveredNote}
           <details><summary>Competency coverage</summary><ul class="coverage-list">${breakdown}</ul></details>
         </div>
-        ${tab === 'interview' ? '<button type="button" class="primary" data-action="complete">Complete assessment</button>' : ''}
+        ${tab === 'interview' ? `<div class="completion-action"><button type="button" class="primary" data-action="complete" ${completionReadiness(c).ready ? '' : 'disabled'}>Complete assessment</button>${completionReadiness(c).ready ? '' : `<p class="hint" role="status">${esc(completionReadiness(c).message)}</p>`}</div>` : ''}
         <button type="button" class="danger" data-action="delete" ${candidates.length ? '' : 'hidden'}>Delete candidate</button>
       </div>`;
   }
@@ -550,7 +583,7 @@ ${next}`;
 
   function makeCompletion(candidate) {
     const result = assess(candidate);
-    const evidence = (candidate.selectedQuestions || []).map(id => {
+    const evidence = orderedQuestionIds(candidate.selectedQuestions || []).map(id => {
       const question = questions.find(item => item[0] === id);
       const response = answer(candidate, id);
       return {id, title:question?.[2] || 'Question unavailable', prompt:question?.[3] || '', competency:question ? groups[question[1]][0] : 'Unknown', status:response.status, note:response.note || ''};
@@ -589,16 +622,18 @@ ${next}`;
   }
 
   function showCompletionDialog(candidate) {
+    const readiness = completionReadiness(candidate);
+    if (!readiness.ready) {
+      toast(`Cannot complete assessment: ${readiness.message}`);
+      return;
+    }
     const result = assess(candidate);
-    const unscored = candidate.selectedQuestions.length - result.verified.length;
     const popup = document.createElement('dialog');
     popup.setAttribute('aria-labelledby', 'complete-title');
     popup.innerHTML = `<h2 id="complete-title">Complete assessment?</h2>
       <p>Questions scored with evidence: ${result.verified.length} of ${candidate.selectedQuestions.length}</p>
       <p>Weighted score: ${percent(result.score)}</p>
       <p>Coverage: ${result.weight}% of 80% needed</p><p>Current verdict: ${esc(result.label)}</p>
-      ${unscored > 0 ? `<p class="hint">${unscored} selected question${unscored === 1 ? ' is' : 's are'} unscored or missing an observation.</p>` : ''}
-      ${result.weight < 80 ? '<p class="hint">Coverage is below 80%. You may still complete this assessment.</p>' : ''}
       <p class="hint">Completion permanently locks the assessment. It cannot be reopened or edited.</p>
       <div class="actions"><button type="button" data-cancel-completion>Keep editing</button><button type="button" class="primary" data-confirm-completion>Complete assessment</button></div>`;
     document.body.appendChild(popup);
@@ -606,11 +641,25 @@ ${next}`;
     popup.querySelector('[data-cancel-completion]').addEventListener('click', () => popup.close());
     popup.querySelector('[data-confirm-completion]').addEventListener('click', async event => {
       const button = event.currentTarget;
+      const currentReadiness = completionReadiness(candidate);
+      if (!currentReadiness.ready) {
+        popup.close();
+        render();
+        toast(`Cannot complete assessment: ${currentReadiness.message}`);
+        return;
+      }
       button.disabled = true;
       clearTimeout(writeTimer);
       await syncCandidates();
       await queue;
       if (failed) {button.disabled = false; alert('The assessment could not be saved. Resolve pending changes before completing.'); return;}
+      const savedReadiness = completionReadiness(candidate);
+      if (!savedReadiness.ready) {
+        popup.close();
+        render();
+        toast(`Cannot complete assessment: ${savedReadiness.message}`);
+        return;
+      }
       candidate.completion = makeCompletion(candidate);
       save();
       clearTimeout(writeTimer);
@@ -779,13 +828,13 @@ ${next}`;
         <div class="table"><table>
           <thead><tr><th scope="col">Question</th>${pair.map((c) => `<th scope="col">${esc(c.name)}</th>`).join('')}</tr></thead>
           <tbody>
-            ${questions.filter(([id]) => isSelected(id)).sort((a, b) => a[1] - b[1]).map(evidenceRow).join('')}
+            ${sortQuestionsByCompetency(questions.filter(([id]) => isSelected(id))).map(evidenceRow).join('')}
 
           </tbody>
         </table></div>
         ${questions.some(([id]) => !isSelected(id)) ? `<details><summary>Show unselected questions</summary>
           <div class="table"><table><thead><tr><th scope="col">Question</th>${pair.map(candidate => `<th scope="col">${esc(candidate.name)}</th>`).join('')}</tr></thead>
-          <tbody>${questions.filter(([id]) => !isSelected(id)).map(evidenceRow).join('')}</tbody></table></div>
+          <tbody>${sortQuestionsByCompetency(questions.filter(([id]) => !isSelected(id))).map(evidenceRow).join('')}</tbody></table></div>
         </details>` : ''}
       </section>`
     );
