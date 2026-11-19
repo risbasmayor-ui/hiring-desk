@@ -1052,12 +1052,26 @@ ${next}`;
         <div class="actions"><button class="primary" type="submit">Sign in</button><button type="button" id="register">Create account</button></div>
         <p id="auth-message" role="status"></p></form></section>`;
       const authForm = document.querySelector('#auth-form');
+      let authPending = false;
       async function authenticate(register) {
-        const values = new FormData(authForm);
-        const credentials = {email:String(values.get('email')),password:String(values.get('password'))};
-        const response = register ? await client.auth.signUp({...credentials,options:{emailRedirectTo:location.origin + location.pathname}}) : await client.auth.signInWithPassword(credentials);
-        document.querySelector('#auth-message').textContent = response.error ? response.error.message : register && !response.data.session ? 'Check your email to confirm your account, then sign in.' : 'Signed in.';
-        if (response.data?.session) location.reload();
+        if (authPending) return;
+        authPending = true;
+        const buttons = authForm.querySelectorAll('button');
+        buttons.forEach(button => { button.disabled = true; });
+        const message = document.querySelector('#auth-message');
+        message.textContent = register ? 'Creating account…' : 'Signing in…';
+        try {
+          const values = new FormData(authForm);
+          const credentials = {email:String(values.get('email')),password:String(values.get('password'))};
+          const response = register ? await client.auth.signUp({...credentials,options:{emailRedirectTo:location.origin + location.pathname}}) : await client.auth.signInWithPassword(credentials);
+          message.textContent = response.error ? response.error.message : register && !response.data.session ? 'Check your email to confirm your account, then sign in.' : 'Signed in.';
+          if (response.data?.session) location.reload();
+        } catch {
+          message.textContent = 'Unable to connect. Please try again.';
+        } finally {
+          authPending = false;
+          buttons.forEach(button => { button.disabled = false; });
+        }
       }
       authForm.addEventListener('submit', event => {event.preventDefault(); authenticate(false);});
       document.querySelector('#register').addEventListener('click', () => {if (authForm.reportValidity()) authenticate(true);});
