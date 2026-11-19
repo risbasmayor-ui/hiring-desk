@@ -341,7 +341,7 @@
               : ''
           }
         </div>`
-      : `<div class="panel">${filterMarkup()}<button data-action="add-question">Add question</button></div>`;
+      : `<div class="panel">${filterMarkup()}</div>`;
 
     const visible = c
       ? selecting
@@ -380,7 +380,7 @@
             }
             <div class="eyebrow">${esc(groups[group][0])}</div>
             <h3>${esc(title)}</h3>
-            ${!c ? `<button type="button" data-edit-question="${esc(id)}">Edit question</button>` : ''}
+            
             <p>${esc(prompt)}</p>
             <details>
               <summary>Expected answer</summary>
@@ -873,30 +873,6 @@ ${next}`;
     if (b.dataset.tab) {
       tab = b.dataset.tab;
       render();
-    }
-    if (b.dataset.action === 'add-question' || b.dataset.editQuestion) {
-      const old = b.dataset.editQuestion ? questions.find(q => q[0] === b.dataset.editQuestion) : null;
-      const groupText = prompt('Competency number: ' + groups.map((g,i)=>`${i+1}. ${g[0]}`).join('  '), old ? String(old[1]+1) : '1');
-      if (groupText === null) return;
-      const group = Number(groupText)-1;
-      if (!Number.isInteger(group) || group < 0 || group >= groups.length) {alert('Choose a valid competency number.'); return;}
-      const title = prompt('Question title', old?.[2] || '');
-      if (title === null) return;
-      const promptText = prompt('Interview question', old?.[3] || '');
-      if (promptText === null) return;
-      const expected = prompt('Expected answer', old?.[4] || '');
-      if (expected === null) return;
-      if (![title,promptText,expected].every(v=>v.trim())) {alert('Complete every field.'); return;}
-      const id = old?.[0] || crypto.randomUUID();
-      const next = [id,group,title.trim(),promptText.trim(),expected.trim()];
-      if (old) {
-        const customIndex = settings.custom.findIndex(q=>q[0] === id);
-        if (customIndex >= 0) settings.custom[customIndex] = next;
-        else settings.edits[id] = next;
-      } else settings.custom.push(next);
-      const existingIndex = questions.findIndex(q=>q[0] === id);
-      if (existingIndex >= 0) questions.splice(existingIndex,1,next); else questions.push(next);
-      await saveSettings(); render();
     }
     if (b.dataset.action === 'save-template') {
       const c = candidates.find(item=>item.id===selected);
