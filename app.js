@@ -352,20 +352,19 @@
   function draft(c, r) {
     const summarize = (items) =>
       items
-        .slice(0, 3)
         .map((a) => `${a.title} (${a.status}) — ${a.note.trim().replace(/\s+/g, ' ')}`)
         .join('\n• ');
     const strengths = summarize(r.verified.filter((a) => a.status === 'Passed'));
     const gaps = summarize(r.verified.filter((a) => a.status !== 'Passed'));
     const untested = r.rows.filter((a) => a.status === 'Not tested').length;
     const missing = r.rows.length - r.verified.length - untested;
-    const missingGroups = groups.filter((_, i) => r.ratings[i] === null).map(([name]) => name);
+    const missingGroups = groups.filter((_, i) => r.ratings[i] === null && r.rows.some((row) => row.group === i)).map(([name]) => name);
     const next = !r.ready
       ? 'Complete the screening evidence before making a recommendation.'
       : r.proceed
         ? 'Proceed to an interview with Aries.'
         : 'Not recommended for the MS L2 Engineer role based on the current screening evidence.';
-    return `${c.name} | MS L2 Engineer technical screening
+    return `${c.name} | ${c.role || 'MS L2 Engineer'} technical screening
 
 ${r.score === null ? 'No scored evidence yet.' : `Weighted score ${percent(r.score)} across ${r.weight}% of competency weight.`} ${r.verified.length}/${r.rows.length} selected questions have evidence.
 
@@ -400,6 +399,27 @@ ${next}`;
     </table></div>`;
   }
 
+  function snapshot(c, r) {
+    const style = r.ready ? (r.proceed ? 'good' : 'bad') : 'pending';
+    return `<div class="score-header panel">
+        ${scoreRing(r.score)}
+        <div class="meta">
+          <div class="row between" style="margin-bottom:8px">
+            <h2>Screening snapshot</h2>
+            ${pill(r.label, style)}
+          </div>
+          ${coverageBar(r.weight, 'Competency weight covered')}
+          <p class="hint">${r.verified.length}/${r.rows.length} selected questions scored with evidence · Routing &amp; Switching and Firewall &amp; Security required for a recommendation</p>
+        </div>
+        <button type="button" class="danger" data-action="delete" ${candidates.length ? '' : 'hidden'}>Delete candidate</button>
+      </div>`;
+  }
+
+  function refreshSnapshot(c) {
+    const header = main.querySelector('.score-header');
+    if (header) header.outerHTML = snapshot(c, assess(c));
+  }
+
   function candidate() {
     const c = candidates.find((item) => item.id === selected);
     if (!c) {
@@ -416,18 +436,7 @@ ${next}`;
       (c.notes
         ? `<div class="panel"><h3>Profile notes</h3><p class="muted">Candidate background and claims to validate</p><pre>${esc(c.notes)}</pre></div>`
         : '') +
-      `<div class="score-header panel">
-        ${scoreRing(r.score)}
-        <div class="meta">
-          <div class="row between" style="margin-bottom:8px">
-            <h2>Screening snapshot</h2>
-            ${pill(r.label, style)}
-          </div>
-          ${coverageBar(r.weight, 'Competency weight covered')}
-          <p class="hint">${r.verified.length}/${r.rows.length} selected questions scored with evidence · Routing &amp; Switching and Firewall &amp; Security required for a recommendation</p>
-        </div>
-        <button type="button" class="danger" data-action="delete" ${candidates.length ? '' : 'hidden'}>Delete candidate</button>
-      </div>` +
+      snapshot(c, r) +
       `<div class="row tabs" role="tablist" aria-label="Candidate views">${[
         ['interview', 'Interview'],
         ['evidence', 'Score & evidence'],
@@ -838,6 +847,7 @@ ${next}`;
       note: fields.querySelector('[data-note]').value,
     };
     save();
+    refreshSnapshot(c);
   }
 
   importInput.addEventListener('change', () => {
@@ -849,3 +859,4 @@ ${next}`;
   candidates = loadCandidates();
   render();
 })();
+
