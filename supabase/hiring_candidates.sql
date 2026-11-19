@@ -2,6 +2,7 @@ create table public.hiring_candidates (
   owner_id uuid not null references auth.users(id) on delete cascade,
   id uuid not null,
   data jsonb not null,
+  revision bigint not null default 1,
   updated_at timestamptz not null default now(),
   primary key (owner_id, id)
 );
