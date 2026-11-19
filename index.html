@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Structured technical screening for Managed Services L2 Engineers">
+  <title>MS L2 Hiring Workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="bank.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">V</span>
+        <div>
+          <span class="brand-name">ViewQwest</span>
+          <small>Managed Services · Hiring desk</small>
+        </div>
+      </div>
+      <nav aria-label="Workspace">
+        <button type="button" data-view="pipeline" class="nav-btn active">
+          <span class="nav-icon" aria-hidden="true">▤</span> Candidates
+        </button>
+        <button type="button" data-view="bank" class="nav-btn">
+          <span class="nav-icon" aria-hidden="true">▥</span> Question bank
+        </button>
+        <button type="button" data-view="compare" class="nav-btn">
+          <span class="nav-icon" aria-hidden="true">◫</span> Compare
+        </button>
+        <button type="button" data-view="rubric" class="nav-btn">
+          <span class="nav-icon" aria-hidden="true">◎</span> Scoring rubric
+        </button>
+      </nav>
+      <div class="sidebar-foot">
+        <p class="local"><strong>Local workspace</strong> Candidate records stay in this browser (localStorage).</p>
+        <div class="io-row">
+          <button type="button" class="ghost" data-action="export" title="Export candidates as JSON">Export</button>
+          <label class="ghost file-label">
+            Import
+            <input type="file" id="import-file" accept="application/json,.json" hidden>
+          </label>
+        </div>
+      </div>
+    </aside>
+
+    <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="sidebar" aria-label="Open navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-backdrop" id="nav-backdrop" hidden></div>
+
+    <main id="main" tabindex="-1"></main>
+  </div>
+
+  <dialog id="profile" aria-labelledby="form-title">
+    <form id="profile-form">
+      <h2 id="form-title">Add candidate</h2>
+      <label>Full name
+        <input name="name" required maxlength="120" autocomplete="name">
+      </label>
+      <label>Current role / company
+        <input name="role" maxlength="160" autocomplete="organization-title">
+      </label>
+      <label>Screening date
+        <input name="date" type="date">
+      </label>
+      <label>Recruiter or interviewer
+        <input name="interviewer" maxlength="120" autocomplete="name">
+      </label>
+      <label>Profile notes
+        <textarea name="notes" rows="3" placeholder="Experience or résumé claims to validate"></textarea>
+      </label>
+      <div class="actions">
+        <button type="button" id="cancel" value="cancel">Cancel</button>
+        <button class="primary" type="submit">Save candidate</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
